@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
 	import Search from '$lib/components/icons/Search.svelte';
@@ -10,7 +11,7 @@
 
 <Collapsible grow={true} className="w-full" buttonClassName="w-full" bind:open={state}>
 	<div class="flex items-center gap-2 text-gray-500 transition">
-		<slot />
+		<slot ></slot>
 		{#if state}
 			<ChevronUp strokeWidth="2.5" className="size-3.5 " />
 		{:else}

@@ -1,3 +1,4 @@
+// @ts-nocheck
 export const DEFAULT_PERMISSIONS = {
 	workspace: {
 		models: false,

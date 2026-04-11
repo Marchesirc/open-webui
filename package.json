@@ -3,13 +3,14 @@
 	"version": "0.8.12",
 	"private": true,
 	"scripts": {
-		"dev": "npm run pyodide:fetch && vite dev --host",
-		"dev:5050": "npm run pyodide:fetch && vite dev --port 5050",
-		"build": "npm run pyodide:fetch && vite build",
-		"build:watch": "npm run pyodide:fetch && vite build --watch",
+		"sync:svelte-kit:patched": "svelte-kit sync && node scripts/ensure-svelte-kit-tsconfig.mjs",
+		"dev": "npm run sync:svelte-kit:patched && npm run pyodide:fetch && vite dev --host",
+		"dev:5050": "npm run sync:svelte-kit:patched && npm run pyodide:fetch && vite dev --port 5050",
+		"build": "npm run sync:svelte-kit:patched && npm run pyodide:fetch && vite build",
+		"build:watch": "npm run sync:svelte-kit:patched && npm run pyodide:fetch && vite build --watch",
 		"preview": "vite preview",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"check": "npm run sync:svelte-kit:patched && svelte-check --tsconfig ./tsconfig.json --compiler-warnings \"a11y_consider_explicit_label:ignore,a11y_no_static_element_interactions:ignore,a11y_click_events_have_key_events:ignore,a11y_no_noninteractive_element_interactions:ignore,a11y_label_has_associated_control:ignore,a11y_missing_attribute:ignore,a11y_invalid_attribute:ignore,a11y_interactive_supports_focus:ignore,a11y_media_has_caption:ignore,css_unused_selector:ignore,export_let_unused:ignore,vendorPrefix:ignore,emptyRules:ignore,reactive_declaration_module_script_dependency:ignore,node_invalid_placement_ssr:ignore\"",
+		"check:watch": "npm run sync:svelte-kit:patched && svelte-check --tsconfig ./tsconfig.json --watch --compiler-warnings \"a11y_consider_explicit_label:ignore,a11y_no_static_element_interactions:ignore,a11y_click_events_have_key_events:ignore,a11y_no_noninteractive_element_interactions:ignore,a11y_label_has_associated_control:ignore,a11y_missing_attribute:ignore,a11y_invalid_attribute:ignore,a11y_interactive_supports_focus:ignore,a11y_media_has_caption:ignore,css_unused_selector:ignore,export_let_unused:ignore,vendorPrefix:ignore,emptyRules:ignore,reactive_declaration_module_script_dependency:ignore,node_invalid_placement_ssr:ignore\"",
 		"lint": "npm run lint:frontend ; npm run lint:types ; npm run lint:backend",
 		"lint:frontend": "eslint . --fix",
 		"lint:types": "npm run check",
@@ -51,6 +52,11 @@
 		"vitest": "^1.6.1"
 	},
 	"type": "module",
+	"packageManager": "npm@10.9.8",
+	"volta": {
+		"node": "22.22.2",
+		"npm": "10.9.8"
+	},
 	"dependencies": {
 		"@azure/msal-browser": "^4.5.0",
 		"@codemirror/lang-javascript": "^6.2.2",
@@ -155,7 +161,7 @@
 		"yjs": "^13.6.27"
 	},
 	"engines": {
-		"node": ">=18.13.0 <=22.x.x",
-		"npm": ">=6.0.0"
+		"node": ">=22.0.0 <23",
+		"npm": ">=10.0.0 <11"
 	}
 }

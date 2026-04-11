@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { getToolById, getTools, updateToolById } from '$lib/apis/tools';

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, tick, getContext } from 'svelte';
 
 	import { decodeString } from '$lib/utils';

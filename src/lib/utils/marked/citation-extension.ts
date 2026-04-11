@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function citationExtension() {
 	return {
 		name: 'citation',

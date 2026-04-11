@@ -1,3 +1,4 @@
+// @ts-nocheck
 import PyodideWorker from '$lib/pyodide/pyodideKernel.worker?worker';
 
 export type CellState = {

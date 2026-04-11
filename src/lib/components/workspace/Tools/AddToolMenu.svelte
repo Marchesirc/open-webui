@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext } from 'svelte';
 
 	import Dropdown from '$lib/components/common/Dropdown.svelte';
@@ -26,7 +27,7 @@
 	}}
 >
 	<Tooltip content={$i18n.t('Create')}>
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 
 	<div slot="content">

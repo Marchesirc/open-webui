@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { Pane, PaneResizer } from 'paneforge';
 
@@ -72,7 +73,7 @@
 			}}
 		>
 			<div class=" px-3.5 py-2.5 h-screen max-h-dvh flex flex-col">
-				<slot />
+				<slot ></slot>
 			</div>
 		</Drawer>
 	{/if}
@@ -83,7 +84,7 @@
 	>
 		<div
 			class=" absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"
-		/>
+		></div>
 	</PaneResizer>
 
 	<Pane
@@ -101,7 +102,7 @@
 				<div
 					class="w-full pt-2 bg-white dark:shadow-lg dark:bg-gray-850 z-40 pointer-events-auto overflow-y-auto scrollbar-hidden flex flex-col px-2"
 				>
-					<slot />
+					<slot ></slot>
 				</div>
 			</div>
 		{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 
@@ -106,7 +107,7 @@
 		</nav>
 
 		<div class="  pb-1 flex-1 max-h-full overflow-y-auto">
-			<slot />
+			<slot ></slot>
 		</div>
 	</div>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
 

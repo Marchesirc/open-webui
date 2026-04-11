@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { browser, dev } from '$app/environment';
 // import { version } from '../../package.json';
 

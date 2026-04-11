@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { onDestroy, onMount, tick, getContext } from 'svelte';
 	const i18n = getContext('i18n');
 

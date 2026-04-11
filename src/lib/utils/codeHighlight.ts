@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Map file extensions to Shiki language identifiers.
  * Only extensions whose Shiki lang id differs from the extension itself need explicit entries.

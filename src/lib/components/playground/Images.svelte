@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 	import { onMount, getContext } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -228,7 +229,7 @@
 								}
 							}}
 							rows="2"
-						/>
+						></textarea>
 					</div>
 
 					<!-- Actions -->

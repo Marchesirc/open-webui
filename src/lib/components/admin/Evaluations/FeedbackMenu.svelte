@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher();
@@ -13,7 +14,7 @@
 
 <Dropdown bind:show>
 	<Tooltip content={$i18n.t('More')}>
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 
 	<div slot="content">

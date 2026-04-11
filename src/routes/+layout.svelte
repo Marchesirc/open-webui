@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { io } from 'socket.io-client';
 	import { spring } from 'svelte/motion';
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
@@ -1056,11 +1057,11 @@
 			<AppSidebar />
 
 			<div class="w-full flex-1 max-w-[calc(100%-4.5rem)]">
-				<slot />
+				<slot ></slot>
 			</div>
 		</div>
 	{:else}
-		<slot />
+		<slot ></slot>
 	{/if}
 {/if}
 

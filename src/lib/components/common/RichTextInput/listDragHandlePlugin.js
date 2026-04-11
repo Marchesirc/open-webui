@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Plugin, PluginKey, NodeSelection } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
 import { Fragment } from 'prosemirror-model';

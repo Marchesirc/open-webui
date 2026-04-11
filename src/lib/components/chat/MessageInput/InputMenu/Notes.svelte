@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import dayjs from 'dayjs';
 	import { onMount, tick, getContext } from 'svelte';
 

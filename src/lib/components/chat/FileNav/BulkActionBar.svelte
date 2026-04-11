@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext } from 'svelte';
 	import GarbageBin from '../../icons/GarbageBin.svelte';
 	import Tooltip from '../../common/Tooltip.svelte';

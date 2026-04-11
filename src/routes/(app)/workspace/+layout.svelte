@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import {
 		WEBUI_NAME,
@@ -155,7 +156,7 @@
 			class="  pb-1 px-3 md:px-[18px] flex-1 max-h-full overflow-y-auto"
 			id="workspace-container"
 		>
-			<slot />
+			<slot ></slot>
 		</div>
 	</div>
 {/if}

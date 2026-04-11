@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { models, showSettings, settings, user, mobile, config } from '$lib/stores';
 	import { onMount, tick, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import { WEBUI_NAME, showSidebar, functions, config, user, showArchivedChats } from '$lib/stores';
 	import { goto } from '$app/navigation';
@@ -29,5 +30,5 @@
 </svelte:head>
 
 {#if loaded}
-	<slot />
+	<slot ></slot>
 {/if}

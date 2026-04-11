@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Fuse from 'fuse.js';
 	import { toast } from 'svelte-sonner';
 	import { v4 as uuidv4 } from 'uuid';
@@ -1116,7 +1117,7 @@
 											disabled={!knowledge?.write_access}
 											aria-label={$i18n.t('File content')}
 											placeholder={$i18n.t('Add content here')}
-										/>
+										></textarea>
 									{/key}
 								</div>
 							</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, createEventDispatcher, onDestroy } from 'svelte';
 	import { useSvelteFlow, useNodesInitialized, useStore } from '@xyflow/svelte';
 

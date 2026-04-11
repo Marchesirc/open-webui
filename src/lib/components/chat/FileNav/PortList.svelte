@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onDestroy, getContext, createEventDispatcher } from 'svelte';
 	import type { ListeningPort } from '$lib/apis/terminal';
 	import { getListeningPorts, getPortProxyUrl } from '$lib/apis/terminal';

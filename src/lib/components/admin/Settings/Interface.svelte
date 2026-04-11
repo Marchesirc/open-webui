@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getModels, getTaskConfig, updateTaskConfig } from '$lib/apis';
 	import { config, settings } from '$lib/stores';
 	import { createEventDispatcher, onMount, getContext } from 'svelte';

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, afterUpdate } from 'svelte';
 	import { tick } from 'svelte';
 	import Folder from '../../icons/Folder.svelte';
@@ -234,6 +235,6 @@
 			}}
 		/>
 	{:else}
-		<slot />
+		<slot ></slot>
 	{/if}
 </div>

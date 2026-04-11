@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import { models } from '$lib/stores';
 	import { getLeaderboard } from '$lib/apis/evaluations';

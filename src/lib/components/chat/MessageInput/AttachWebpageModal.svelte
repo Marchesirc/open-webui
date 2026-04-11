@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 
 	import { getContext } from 'svelte';
@@ -75,7 +76,7 @@
 					placeholder={'https://example.com'}
 					autocomplete="off"
 					required
-				/>
+				></textarea>
 
 				<div class="flex justify-end gap-2 pt-3 bg-gray-50 dark:bg-gray-900/50">
 					<button

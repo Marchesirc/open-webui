@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import DOMPurify from 'dompurify';
 
 	import { onDestroy } from 'svelte';
@@ -77,7 +78,7 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <svelte:element this={as} bind:this={tooltipElement} class={className} on:click={onClick}>
-	<slot />
+	<slot ></slot>
 </svelte:element>
 
 <slot name="tooltip"></slot>

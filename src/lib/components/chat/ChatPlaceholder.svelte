@@ -58,7 +58,7 @@
 								alt="logo"
 								draggable="false"
 								on:error={(e) => {
-									e.currentTarget.src = '/favicon.png';
+									(e.currentTarget as HTMLImageElement).src = '/favicon.png';
 								}}
 							/>
 						</Tooltip>

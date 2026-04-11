@@ -143,7 +143,7 @@
 		>
 			<div>
 				<div class="flex items-start justify-between">
-					<slot />
+					<slot ></slot>
 
 					{#if chevron}
 						<div class="flex self-start translate-y-1">
@@ -164,7 +164,7 @@
 								e.stopPropagation();
 							}}
 						>
-							<slot name="content" />
+							<slot name="content" ></slot>
 						</div>
 					{/if}
 				{/if}
@@ -175,7 +175,7 @@
 	{#if !grow}
 		{#if open && !hide}
 			<div transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
-				<slot name="content" />
+				<slot name="content" ></slot>
 			</div>
 		{/if}
 	{/if}

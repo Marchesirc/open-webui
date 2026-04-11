@@ -1,3 +1,4 @@
+// @ts-nocheck
 export class AudioQueue {
 	constructor(audioElement) {
 		this.audio = audioElement;

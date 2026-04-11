@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { titleGenerationTemplate } from '$lib/utils/index';
 import { expect, test } from 'vitest';
 

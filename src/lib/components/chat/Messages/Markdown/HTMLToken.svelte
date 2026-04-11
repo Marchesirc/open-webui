@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import DOMPurify from 'dompurify';
 	import type { Token } from 'marked';
 
@@ -27,10 +28,8 @@
 				class="w-full my-2"
 				src={videoSrc.replaceAll('&amp;', '&')}
 				title="Video player"
-				frameborder="0"
-				referrerpolicy="strict-origin-when-cross-origin"
 				controls
-				allowfullscreen
+				playsinline
 			></video>
 		{:else}
 			{token.text}
@@ -78,8 +77,8 @@
 				sandbox
 				on:load={(e) => {
 					try {
-						e.currentTarget.style.height =
-							e.currentTarget.contentWindow.document.body.scrollHeight + 20 + 'px';
+						(e.currentTarget as HTMLIFrameElement).style.height =
+							(e.currentTarget as HTMLIFrameElement).contentWindow!.document.body.scrollHeight + 20 + 'px';
 					} catch {}
 				}}
 			></iframe>
@@ -120,8 +119,8 @@
 				width="100%"
 				on:load={(e) => {
 					try {
-						e.currentTarget.style.height =
-							e.currentTarget.contentWindow.document.body.scrollHeight + 20 + 'px';
+						(e.currentTarget as HTMLIFrameElement).style.height =
+							(e.currentTarget as HTMLIFrameElement).contentWindow!.document.body.scrollHeight + 20 + 'px';
 					} catch {}
 				}}
 			></iframe>

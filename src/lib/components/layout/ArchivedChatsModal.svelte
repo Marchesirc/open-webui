@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	// @ts-ignore
 	import fileSaver from 'file-saver';
 	import type { Writable } from 'svelte/store';

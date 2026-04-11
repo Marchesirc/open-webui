@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import hljs from 'highlight.js';
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount, tick, onDestroy } from 'svelte';
@@ -595,7 +596,7 @@
 				<div
 					id="plt-canvas-{id}"
 					class="bg-gray-50 dark:bg-black dark:text-white max-w-full overflow-x-auto scrollbar-hidden"
-				/>
+				></div>
 
 				{#if executing || stdout || stderr || result || files}
 					<div

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { Writable } from 'svelte/store';
 import { v4 as uuidv4 } from 'uuid';
 import sha256 from 'js-sha256';

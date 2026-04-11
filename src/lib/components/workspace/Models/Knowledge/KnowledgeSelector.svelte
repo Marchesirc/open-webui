@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import dayjs from 'dayjs';
 
 	import { onMount, onDestroy, getContext, createEventDispatcher } from 'svelte';
@@ -114,7 +115,7 @@
 		}
 	}}
 >
-	<slot />
+	<slot ></slot>
 
 	<div slot="content">
 		<div

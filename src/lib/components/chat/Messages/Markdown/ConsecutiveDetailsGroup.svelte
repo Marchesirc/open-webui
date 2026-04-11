@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { decode } from 'html-entities';
 	import { getContext } from 'svelte';
 	import { slide } from 'svelte/transition';
@@ -156,7 +157,7 @@
 	{#if open}
 		<div transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
 			<div class="mb-0.5 space-y-0.5">
-				<slot name="content" />
+				<slot name="content" ></slot>
 			</div>
 		</div>
 	{/if}

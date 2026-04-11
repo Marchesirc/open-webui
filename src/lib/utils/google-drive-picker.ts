@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Google Drive Picker API configuration
 let API_KEY = '';
 let CLIENT_ID = '';

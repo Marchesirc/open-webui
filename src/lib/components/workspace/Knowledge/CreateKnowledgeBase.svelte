@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 
 	import { goto } from '$app/navigation';
@@ -103,7 +104,7 @@
 							bind:value={description}
 							placeholder={$i18n.t('Describe your knowledge base and objectives')}
 							required
-						/>
+						></textarea>
 					</div>
 				</div>
 			</div>

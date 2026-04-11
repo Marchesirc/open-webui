@@ -1526,6 +1526,10 @@ app.include_router(terminals.router, prefix='/api/v1/terminals', tags=['terminal
 # SCIM 2.0 API for identity management
 if ENABLE_SCIM:
     app.include_router(scim.router, prefix='/api/v1/scim/v2', tags=['scim'])
+from open_webui.routers.hardware import router as hardware_router
+
+app.include_router(hardware_router, prefix='/api/v1', tags=['hardware'])
+
 
 
 try:

@@ -25,7 +25,7 @@
 		dispatch('change', state);
 	}}
 >
-	<slot />
+	<slot ></slot>
 
 	<div slot="content">
 		<div

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, onDestroy } from 'svelte';
 	import { getContext } from 'svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';

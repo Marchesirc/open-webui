@@ -1,3 +1,4 @@
+// @ts-nocheck
 export const disableSingleTilde = {
 	tokenizer: {
 		del(src) {

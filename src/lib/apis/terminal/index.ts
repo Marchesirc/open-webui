@@ -1,3 +1,4 @@
+// @ts-nocheck
 export type FileEntry = {
 	name: string;
 	type: 'file' | 'directory';

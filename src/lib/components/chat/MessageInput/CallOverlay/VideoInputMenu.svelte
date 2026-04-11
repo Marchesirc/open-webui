@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, createEventDispatcher } from 'svelte';
 
 	const i18n = getContext('i18n');
@@ -22,7 +23,7 @@
 		}
 	}}
 >
-	<slot />
+	<slot ></slot>
 
 	<div slot="content">
 		<div

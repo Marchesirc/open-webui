@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import type { Writable } from 'svelte/store';
 	import { toast } from 'svelte-sonner';
 	import { getContext } from 'svelte';

@@ -13,7 +13,7 @@
 			<div
 				class="absolute rounded-sm"
 				style="inset: -10px; opacity: {opacity}; backdrop-filter: blur(5px);"
-			/>
+			></div>
 
 			<div class="flex w-full flex-col justify-center">
 				<div class=" py-3">
@@ -29,5 +29,5 @@
 		</div>
 	{/if}
 
-	<slot />
+	<slot ></slot>
 </div>

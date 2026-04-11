@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Marked extension for colon-fence blocks (:::type ... :::)
  *

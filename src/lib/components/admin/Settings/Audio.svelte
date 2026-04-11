@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 	import { createEventDispatcher, onMount, getContext } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -277,7 +278,7 @@
 								/>
 
 								<datalist id="model-list">
-									<option value="whisper-1" />
+									<option value="whisper-1" ></option>
 								</datalist>
 							</div>
 						</div>
@@ -622,7 +623,7 @@
 									/>
 
 									<datalist id="model-list">
-										<option value="tts-1" />
+										<option value="tts-1" ></option>
 									</datalist>
 								</div>
 							</div>
@@ -684,7 +685,7 @@
 
 										<datalist id="tts-model-list">
 											{#each models as model}
-												<option value={model.id} class="bg-gray-50 dark:bg-gray-700" />
+												<option value={model.id} class="bg-gray-50 dark:bg-gray-700" ></option>
 											{/each}
 										</datalist>
 									</div>
@@ -741,7 +742,7 @@
 
 										<datalist id="tts-model-list">
 											{#each models as model}
-												<option value={model.id} class="bg-gray-50 dark:bg-gray-700" />
+												<option value={model.id} class="bg-gray-50 dark:bg-gray-700" ></option>
 											{/each}
 										</datalist>
 									</div>

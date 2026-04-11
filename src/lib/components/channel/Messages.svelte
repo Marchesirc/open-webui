@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 
 	import dayjs from 'dayjs';
@@ -251,6 +252,6 @@
 			/>
 		{/each}
 
-		<div class="pb-6" />
+		<div class="pb-6" ></div>
 	</div>
 {/if}

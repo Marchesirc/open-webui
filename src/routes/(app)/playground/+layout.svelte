@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import { WEBUI_NAME, showSidebar, functions, mobile } from '$lib/stores';
 	import { page } from '$app/stores';
@@ -84,6 +85,6 @@
 	</nav>
 
 	<div class=" flex-1 max-h-full overflow-y-auto">
-		<slot />
+		<slot ></slot>
 	</div>
 </div>

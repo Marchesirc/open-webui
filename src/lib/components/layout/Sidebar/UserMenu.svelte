@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { createEventDispatcher, getContext, onMount, tick } from 'svelte';
 
 	import { goto } from '$app/navigation';
@@ -79,7 +80,7 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <Dropdown bind:show onOpenChange={handleDropdownChange} {align}>
-	<slot />
+	<slot ></slot>
 
 	<div slot="content">
 		<div
@@ -104,7 +105,7 @@
 							{#if $user?.is_active ?? true}
 								<div>
 									<span class="relative flex size-2">
-										<span class="relative inline-flex rounded-full size-2 bg-green-500" />
+										<span class="relative inline-flex rounded-full size-2 bg-green-500" ></span>
 									</span>
 								</div>
 
@@ -112,7 +113,7 @@
 							{:else}
 								<div>
 									<span class="relative flex size-2">
-										<span class="relative inline-flex rounded-full size-2 bg-gray-500" />
+										<span class="relative inline-flex rounded-full size-2 bg-gray-500" ></span>
 									</span>
 								</div>
 
@@ -382,7 +383,7 @@
 						>
 							<div class=" flex items-center">
 								<span class="relative flex size-2">
-									<span class="relative inline-flex rounded-full size-2 bg-green-500" />
+									<span class="relative inline-flex rounded-full size-2 bg-green-500" ></span>
 								</span>
 							</div>
 

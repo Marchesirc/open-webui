@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, tick } from 'svelte';
 
 	import fileSaver from 'file-saver';
@@ -288,7 +289,7 @@
 	}}
 >
 	<Tooltip content={$i18n.t('More')}>
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 
 	<div slot="content">

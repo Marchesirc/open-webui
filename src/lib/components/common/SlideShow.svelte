@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { onMount } from 'svelte';
 

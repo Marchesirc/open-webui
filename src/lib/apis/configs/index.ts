@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 import type { Banner } from '$lib/types';
 

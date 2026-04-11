@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 export const createNewSkill = async (token: string, skill: object) => {

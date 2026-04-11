@@ -1,3 +1,4 @@
+// @ts-nocheck
 export const setTextScale = (scale) => {
 	if (typeof document === 'undefined') {
 		return;

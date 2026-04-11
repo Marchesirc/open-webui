@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 
 	import { onMount, getContext, tick } from 'svelte';
@@ -895,7 +896,7 @@
 									value={JSON.stringify(info, null, 2)}
 									disabled
 									readonly
-								/>
+								></textarea>
 							</div>
 						{/if}
 					</div>

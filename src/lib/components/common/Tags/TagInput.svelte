@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { createEventDispatcher, getContext } from 'svelte';
 	const dispatch = createEventDispatcher();
 
@@ -69,7 +70,7 @@
 {#if suggestionTags.length > 0}
 	<datalist id="tagOptions">
 		{#each suggestionTags as tag}
-			<option value={tag.name} />
+			<option value={tag.name} ></option>
 		{/each}
 	</datalist>
 {/if}

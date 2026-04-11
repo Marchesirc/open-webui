@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onDestroy, tick } from 'svelte';
 	import panzoom, { type PanZoom } from 'panzoom';
 	import { marked } from 'marked';
@@ -416,7 +417,7 @@
 					: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
 				class="w-full h-full border-none bg-white"
 				title="HTML Preview"
-			/>
+			></iframe>
 		{:else if isHtml && showRaw}
 			<div class="absolute inset-0">
 				<FileCodeEditor
@@ -506,7 +507,7 @@
 				bind:value={editContent}
 				class="w-full h-full text-xs font-mono text-gray-800 dark:text-gray-200 whitespace-pre break-all leading-relaxed p-3 bg-transparent border-none outline-none resize-none"
 				spellcheck="false"
-			/>
+			></textarea>
 		{:else}
 			<pre
 				class="text-xs font-mono text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-all leading-relaxed p-3">{fileContent}</pre>

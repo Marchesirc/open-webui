@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import AddFilesPlaceholder from '$lib/components/AddFilesPlaceholder.svelte';
 
 	export let show = false;

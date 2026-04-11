@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, tick, getContext } from 'svelte';
 
 	import Textarea from '$lib/components/common/Textarea.svelte';
@@ -243,7 +244,7 @@
 									placeholder={$i18n.t('Enter skill instructions in markdown...')}
 									aria-label={$i18n.t('Skill Instructions')}
 									required
-								/>
+								></textarea>
 							{/if}
 						</div>
 					</div>

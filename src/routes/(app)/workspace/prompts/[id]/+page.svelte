@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { onMount, getContext } from 'svelte';

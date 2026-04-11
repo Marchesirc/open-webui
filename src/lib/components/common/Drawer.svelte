@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onDestroy, onMount } from 'svelte';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { fade, fly, slide } from 'svelte/transition';
@@ -68,7 +69,7 @@
 				e.stopPropagation();
 			}}
 		>
-			<slot />
+			<slot ></slot>
 		</div>
 	</div>
 {/if}

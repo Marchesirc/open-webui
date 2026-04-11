@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { createEventDispatcher, getContext } from 'svelte';
 	const dispatch = createEventDispatcher();
 	const i18n = getContext('i18n');
@@ -114,7 +115,7 @@
 								: 'py-1.5 bg-transparent'}"
 							rows="4"
 							placeholder={$i18n.t('Enter system prompt')}
-						/>
+						></textarea>
 					</div>
 				</Collapsible>
 

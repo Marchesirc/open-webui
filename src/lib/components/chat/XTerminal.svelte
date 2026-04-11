@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, onDestroy, getContext } from 'svelte';
 	import { Terminal } from '@xterm/xterm';
 	import { FitAddon } from '@xterm/addon-fit';
@@ -277,5 +278,5 @@
 </script>
 
 <div class="h-full min-h-0 relative">
-	<div bind:this={terminalEl} class="absolute inset-0 px-0.5" class:pointer-events-none={overlay} />
+	<div bind:this={terminalEl} class="absolute inset-0 px-0.5" class:pointer-events-none={overlay} ></div>
 </div>

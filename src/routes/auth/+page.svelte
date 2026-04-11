@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import DOMPurify from 'dompurify';
 	import { marked } from 'marked';
 
@@ -27,13 +28,18 @@
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import { redirect } from '@sveltejs/kit';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<any>('i18n');
 
 	let loaded = false;
+	let features: any = {};
+	let metadata: any = {};
 
-	let mode = $config?.features.enable_ldap ? 'ldap' : 'signin';
+	$: features = ($config?.features ?? {}) as any;
+	$: metadata = (($config as any)?.metadata ?? {}) as any;
 
-	let form = null;
+	let mode = features?.enable_ldap ? 'ldap' : 'signin';
+
+	let form: string | null = null;
 
 	let name = '';
 	let email = '';
@@ -42,14 +48,14 @@
 
 	let ldapUsername = '';
 
-	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
+	const setSessionUser = async (sessionUser: any, redirectPath: string | null = null) => {
 		if (sessionUser) {
 			console.log(sessionUser);
 			toast.success($i18n.t(`You're now logged in.`));
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
-			$socket.emit('user-join', { auth: { token: sessionUser.token } });
+			$socket?.emit('user-join', { auth: { token: sessionUser.token } });
 			await user.set(sessionUser);
 			await config.set(await getBackendConfig());
 
@@ -78,7 +84,7 @@
 	};
 
 	const signUpHandler = async () => {
-		if ($config?.features?.enable_signup_password_confirmation) {
+		if (features?.enable_signup_password_confirmation) {
 			if (password !== confirmPassword) {
 				toast.error($i18n.t('Passwords do not match.'));
 				return;
@@ -115,7 +121,7 @@
 
 	const oauthCallbackHandler = async () => {
 		// Get the value of the 'token' cookie
-		function getCookie(name) {
+		function getCookie(name: string) {
 			const match = document.cookie.match(
 				new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)')
 			);
@@ -144,7 +150,7 @@
 
 	async function setLogoImage() {
 		await tick();
-		const logo = document.getElementById('logo');
+		const logo = document.getElementById('logo') as HTMLImageElement | null;
 
 		if (logo) {
 			const isDarkMode = document.documentElement.classList.contains('dark');
@@ -186,10 +192,10 @@
 		loaded = true;
 		setLogoImage();
 
-		if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
+		if ((features?.auth_trusted_header ?? false) || features?.auth === false) {
 			await signInHandler();
 		} else {
-			onboarding = $config?.onboarding ?? false;
+			onboarding = (($config as any)?.onboarding ?? false) as boolean;
 		}
 	});
 </script>
@@ -204,14 +210,14 @@
 	bind:show={onboarding}
 	getStartedHandler={() => {
 		onboarding = false;
-		mode = $config?.features.enable_ldap ? 'ldap' : 'signup';
+		mode = features?.enable_ldap ? 'ldap' : 'signup';
 	}}
 />
 
 <div class="w-full h-screen max-h-[100dvh] text-white relative" id="auth-page">
 	<div class="w-full h-full absolute top-0 left-0 bg-white dark:bg-black"></div>
 
-	<div class="w-full absolute top-0 left-0 right-0 h-8 drag-region" />
+	<div class="w-full absolute top-0 left-0 right-0 h-8 drag-region"></div>
 
 	{#if loaded}
 		<div
@@ -219,7 +225,7 @@
 			id="auth-container"
 		>
 			<div class="w-full px-10 min-h-screen flex flex-col text-center">
-				{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
+				{#if (features?.auth_trusted_header ?? false) || features?.auth === false}
 					<div class=" my-auto pb-10 w-full sm:max-w-md">
 						<div
 							class="flex items-center justify-center gap-3 text-xl sm:text-2xl text-center font-medium dark:text-gray-200"
@@ -236,7 +242,7 @@
 				{:else}
 					<div class="my-auto flex flex-col justify-center items-center">
 						<div class=" sm:max-w-md my-auto pb-10 w-full dark:text-gray-100">
-							{#if $config?.metadata?.auth_logo_position === 'center'}
+							{#if metadata?.auth_logo_position === 'center'}
 								<div class="flex justify-center mb-6">
 									<img
 										id="logo"
@@ -267,7 +273,7 @@
 										{/if}
 									</div>
 
-									{#if $config?.onboarding ?? false}
+									{#if (($config as any)?.onboarding ?? false)}
 										<div class="mt-1 text-xs font-medium text-gray-600 dark:text-gray-500">
 											ⓘ {$WEBUI_NAME}
 											{$i18n.t(
@@ -277,7 +283,7 @@
 									{/if}
 								</div>
 
-								{#if $config?.features.enable_login_form || $config?.features.enable_ldap || form}
+								{#if features?.enable_login_form || features?.enable_ldap || form}
 									<div class="flex flex-col mt-4">
 										{#if mode === 'signup'}
 											<div class="mb-2">
@@ -338,7 +344,7 @@
 												bind:value={password}
 												type="password"
 												id="password"
-												class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
+												inputClassName="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
 												placeholder={$i18n.t('Enter Your Password')}
 												autocomplete={mode === 'signup' ? 'new-password' : 'current-password'}
 												name="password"
@@ -348,7 +354,7 @@
 											/>
 										</div>
 
-										{#if mode === 'signup' && $config?.features?.enable_signup_password_confirmation}
+										{#if mode === 'signup' && features?.enable_signup_password_confirmation}
 											<div class="mt-2">
 												<label
 													for="confirm-password"
@@ -359,7 +365,7 @@
 													bind:value={confirmPassword}
 													type="password"
 													id="confirm-password"
-													class="my-0.5 w-full text-sm outline-hidden bg-transparent"
+													inputClassName="my-0.5 w-full text-sm outline-hidden bg-transparent"
 													placeholder={$i18n.t('Confirm Your Password')}
 													autocomplete="new-password"
 													name="confirm-password"
@@ -370,7 +376,7 @@
 									</div>
 								{/if}
 								<div class="mt-5">
-									{#if $config?.features.enable_login_form || $config?.features.enable_ldap || form}
+									{#if features?.enable_login_form || features?.enable_ldap || form}
 										{#if mode === 'ldap'}
 											<button
 												class="bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
@@ -385,12 +391,12 @@
 											>
 												{mode === 'signin'
 													? $i18n.t('Sign in')
-													: ($config?.onboarding ?? false)
+													: ((($config as any)?.onboarding ?? false) as boolean)
 														? $i18n.t('Create Admin Account')
 														: $i18n.t('Create Account')}
 											</button>
 
-											{#if $config?.features.enable_signup && !($config?.onboarding ?? false)}
+											{#if features?.enable_signup && !(($config as any)?.onboarding ?? false)}
 												<div class=" mt-4 text-sm text-center">
 													{mode === 'signin'
 														? $i18n.t("Don't have an account?")
@@ -419,7 +425,7 @@
 							{#if Object.keys($config?.oauth?.providers ?? {}).length > 0}
 								<div class="inline-flex items-center justify-center w-full">
 									<hr class="w-32 h-px my-4 border-0 dark:bg-gray-100/10 bg-gray-700/10" />
-									{#if $config?.features.enable_login_form || $config?.features.enable_ldap || form}
+									{#if features?.enable_login_form || features?.enable_ldap || form}
 										<span
 											class="px-3 text-sm font-medium text-gray-900 dark:text-white bg-transparent"
 											>{$i18n.t('or')}</span

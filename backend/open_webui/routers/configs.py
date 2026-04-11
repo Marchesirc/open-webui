@@ -12,6 +12,7 @@ from open_webui.config import get_config, save_config
 from open_webui.config import BannerModel
 
 from open_webui.utils.tools import (
+    execute_tool_server,
     get_tool_server_data,
     get_tool_server_url,
     set_tool_servers,
@@ -161,6 +162,12 @@ class ToolServersConfigForm(BaseModel):
     TOOL_SERVER_CONNECTIONS: list[ToolServerConnection]
 
 
+class ExecuteToolServerForm(BaseModel):
+    server: ToolServerConnection
+    name: str
+    params: Optional[dict] = None
+
+
 @router.get('/tool_servers', response_model=ToolServersConfigForm)
 async def get_tool_servers_config(request: Request, user=Depends(get_admin_user)):
     return {
@@ -289,7 +296,7 @@ async def verify_terminal_server_connection(
 
     try:
         async with aiohttp.ClientSession(
-            trust_env=True,
+            trust_env=False,
             timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT),
         ) as session:
             # Orchestrators expose a policies API; plain terminals don't.
@@ -339,7 +346,7 @@ async def put_terminal_server_policy(
 
     try:
         async with aiohttp.ClientSession(
-            trust_env=True,
+            trust_env=False,
             timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT),
         ) as session:
             policy_url = f'{base_url}/api/v1/policies/{form_data.policy_id}'
@@ -355,6 +362,49 @@ async def put_terminal_server_policy(
         raise HTTPException(status_code=400, detail='Failed to save policy to terminal server')
 
 
+@router.post('/tool_servers/execute')
+async def execute_tool_servers_config(
+    request: Request,
+    form_data: ExecuteToolServerForm,
+    user=Depends(get_verified_user),
+):
+    server = form_data.server
+    params = form_data.params or {}
+
+    headers = {'Content-Type': 'application/json'}
+    if server.auth_type == 'bearer' and server.key:
+        headers['Authorization'] = f'Bearer {server.key}'
+    elif server.auth_type == 'session':
+        headers['Authorization'] = f'Bearer {request.state.token.credentials}'
+
+    if server.headers and isinstance(server.headers, dict):
+        headers.update(server.headers)
+
+    url = get_tool_server_url(server.url, server.path)
+
+    if server.type == 'mcp':
+        client = MCPClient()
+        try:
+            await client.connect(url, headers=headers if headers else None)
+            return await client.call_tool(form_data.name, params)
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+
+    server_data = await get_tool_server_data(url, headers=headers)
+    result, _ = await execute_tool_server(
+        url=url,
+        headers=headers,
+        cookies=request.cookies,
+        name=form_data.name,
+        params=params,
+        server_data={**server_data, 'type': server.type or 'openapi'},
+    )
+    return result
+
+
 @router.post('/tool_servers/verify')
 async def verify_tool_servers_config(request: Request, form_data: ToolServerConnection, user=Depends(get_admin_user)):
     """
@@ -367,7 +417,7 @@ async def verify_tool_servers_config(request: Request, form_data: ToolServerConn
                 for discovery_url in discovery_urls:
                     log.debug(f'Trying to fetch OAuth 2.1 discovery document from {discovery_url}')
                     async with aiohttp.ClientSession(
-                        trust_env=True,
+                        trust_env=False,
                         timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT),
                     ) as session:
                         async with session.get(discovery_url) as oauth_server_metadata_response:
@@ -422,11 +472,15 @@ async def verify_tool_servers_config(request: Request, form_data: ToolServerConn
                             headers = {}
                         headers.update(form_data.headers)
 
-                    await client.connect(form_data.url, headers=headers)
+                    mcp_url = get_tool_server_url(form_data.url, form_data.path or '/mcp')
+                    await client.connect(mcp_url, headers=headers)
                     specs = await client.list_tool_specs()
+                    resources = await client.list_resources()
                     return {
                         'status': True,
+                        'url': mcp_url,
                         'specs': specs,
+                        'resources': resources,
                     }
                 except Exception as e:
                     log.debug(f'Failed to create MCP client: {e}')

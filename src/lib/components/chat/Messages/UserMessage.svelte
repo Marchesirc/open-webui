@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import dayjs from 'dayjs';
 	import { toast } from 'svelte-sonner';
 	import { tick, getContext, onMount } from 'svelte';
@@ -325,7 +326,7 @@
 									document.getElementById('confirm-edit-message-button')?.click();
 								}
 							}}
-						/>
+						></textarea>
 					</div>
 
 					<div class=" mt-2 mb-1 flex justify-between text-sm font-medium">

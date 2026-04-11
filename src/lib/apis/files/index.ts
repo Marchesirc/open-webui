@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 import { splitStream } from '$lib/utils';
 

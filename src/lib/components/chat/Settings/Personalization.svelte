@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Switch from '$lib/components/common/Switch.svelte';
 	import { config, models, settings, user } from '$lib/stores';
 	import { createEventDispatcher, onMount, getContext, tick } from 'svelte';

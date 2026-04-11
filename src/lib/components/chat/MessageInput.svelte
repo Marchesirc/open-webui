@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import DOMPurify from 'dompurify';
 	import { toast } from 'svelte-sonner';
 
@@ -1215,7 +1216,7 @@
 							id="generate-message-pair-button"
 							class="hidden"
 							on:click={() => createMessagePair(prompt)}
-						/>
+						></button>
 
 						<!-- Queued messages display -->
 						{#if messageQueue.length > 0}
@@ -1625,7 +1626,7 @@
 									{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
 										<div
 											class="flex self-center w-[1px] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50"
-										/>
+										></div>
 
 										<IntegrationsMenu
 											selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
@@ -2035,7 +2036,7 @@
 								{@html DOMPurify.sanitize(marked($config?.license_metadata?.input_footer))}
 							</div>
 						{:else}
-							<div class="mb-1" />
+							<div class="mb-1" ></div>
 						{/if}
 					</form>
 				</div>

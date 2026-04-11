@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onDestroy, onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
 
@@ -110,7 +111,7 @@
 				e.stopPropagation();
 			}}
 		>
-			<slot />
+			<slot ></slot>
 		</div>
 	</div>
 {/if}

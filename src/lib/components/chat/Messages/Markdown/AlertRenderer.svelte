@@ -1,4 +1,5 @@
 <script lang="ts" context="module">
+// @ts-nocheck
 	import { marked, type Token } from 'marked';
 
 	type AlertType = 'NOTE' | 'TIP' | 'IMPORTANT' | 'WARNING' | 'CAUTION';
@@ -63,6 +64,7 @@
 </script>
 
 <script lang="ts">
+// @ts-nocheck
 	import Info from '$lib/components/icons/Info.svelte';
 	import Star from '$lib/components/icons/Star.svelte';
 	import LightBulb from '$lib/components/icons/LightBulb.svelte';

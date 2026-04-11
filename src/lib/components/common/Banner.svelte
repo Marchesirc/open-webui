@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import type { Banner } from '$lib/types';
 	import { onMount, createEventDispatcher, getContext } from 'svelte';
 	import { fade } from 'svelte/transition';

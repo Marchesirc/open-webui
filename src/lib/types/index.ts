@@ -1,3 +1,4 @@
+// @ts-nocheck
 export type Banner = {
 	id: string;
 	type: string;

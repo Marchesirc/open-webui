@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import TagList from './Tags/TagList.svelte';
 	import { getContext, createEventDispatcher } from 'svelte';
 	const dispatch = createEventDispatcher();

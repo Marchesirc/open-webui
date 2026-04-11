@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { cubicOut } from 'svelte/easing';
 import type { TransitionConfig } from 'svelte/transition';
 

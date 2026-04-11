@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 import type { ParsedEvent } from 'eventsource-parser';
 

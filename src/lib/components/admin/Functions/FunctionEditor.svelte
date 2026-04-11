@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { getContext, onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 

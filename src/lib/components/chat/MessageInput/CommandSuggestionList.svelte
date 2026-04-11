@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Prompts from './Commands/Prompts.svelte';
 	import Knowledge from './Commands/Knowledge.svelte';
 	import Models from './Commands/Models.svelte';

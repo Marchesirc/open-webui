@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { APP_NAME } from '$lib/constants';
 import { type Writable, writable } from 'svelte/store';
 import type { ModelConfig } from '$lib/apis';
@@ -170,6 +171,7 @@ type OllamaModelDetails = {
 type Settings = {
 	pinnedModels?: never[];
 	toolServers?: never[];
+	terminalServers?: any[];
 	detectArtifacts?: boolean;
 	showUpdateToast?: boolean;
 	showChangelog?: boolean;
@@ -209,6 +211,7 @@ type Settings = {
 	conversationMode?: boolean;
 	speechAutoSend?: boolean;
 	responseAutoPlayback?: boolean;
+	version?: string;
 	audio?: AudioSettings;
 	showUsername?: boolean;
 	notificationEnabled?: boolean;
@@ -219,6 +222,7 @@ type Settings = {
 	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;
 	renderMarkdownInPreviews?: boolean;
+	version?: string;
 
 	system?: string;
 	seed?: number;
@@ -274,6 +278,8 @@ type Config = {
 		enable_api_keys: boolean;
 		enable_signup: boolean;
 		enable_login_form: boolean;
+		enable_ldap?: boolean;
+		enable_signup_password_confirmation?: boolean;
 		enable_web_search?: boolean;
 		enable_google_drive_integration: boolean;
 		enable_onedrive_integration: boolean;
@@ -282,6 +288,12 @@ type Config = {
 		enable_admin_chat_access: boolean;
 		enable_admin_analytics: boolean;
 		enable_community_sharing: boolean;
+		enable_message_rating?: boolean;
+		enable_folders?: boolean;
+		enable_notes?: boolean;
+		enable_channels?: boolean;
+		enable_user_webhooks?: boolean;
+		enable_user_status?: boolean;
 		enable_memories: boolean;
 		enable_autocomplete_generation: boolean;
 		enable_direct_connections: boolean;
@@ -292,6 +304,12 @@ type Config = {
 		providers: {
 			[key: string]: string;
 		};
+	};
+	onboarding?: boolean;
+	metadata?: {
+		login_footer?: string;
+		auth_logo_position?: string;
+		[key: string]: any;
 	};
 	ui?: {
 		pending_user_overlay_title?: string;

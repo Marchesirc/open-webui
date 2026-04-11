@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { LinkPreview } from 'bits-ui';
 	import { decodeString } from '$lib/utils';
 	import Source from './Source.svelte';

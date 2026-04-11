@@ -1,13 +1,17 @@
 <script lang="ts">
+// @ts-nocheck
+	import { getContext } from 'svelte';
 	import ChevronDown from '../icons/ChevronDown.svelte';
 	import Check from '../icons/Check.svelte';
 	import Search from '../icons/Search.svelte';
 	import Select from './Select.svelte';
 
+	const i18n = getContext('i18n');
+
 	export let value = '';
-	export let placeholder = $i18n.t('Select a model');
+	export let placeholder = i18n.t('Select a model');
 	export let searchEnabled = true;
-	export let searchPlaceholder = $i18n.t('Search a model');
+	export let searchPlaceholder = i18n.t('Search a model');
 
 	export let items = [
 		{ value: 'mango', label: 'Mango' },

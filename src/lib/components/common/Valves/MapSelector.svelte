@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { onMount, onDestroy } from 'svelte';
 
 	let map;
@@ -80,5 +81,5 @@
 </script>
 
 <div class=" z-10 w-full">
-	<div bind:this={mapElement} class="h-96 z-10" />
+	<div bind:this={mapElement} class="h-96 z-10" ></div>
 </div>

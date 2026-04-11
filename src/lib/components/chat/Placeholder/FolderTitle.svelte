@@ -146,11 +146,11 @@
 	>
 		<div class=" text-sm text-gray-700 dark:text-gray-300 flex-1 line-clamp-3 mb-2">
 			<!-- {$i18n.t('This will delete <strong>{{NAME}}</strong> and <strong>all its contents</strong>.', {
-				NAME: folders[folderId].name
+				NAME: folder.name
 			})} -->
 
 			{$i18n.t(`Are you sure you want to delete "{{NAME}}"?`, {
-				NAME: folders[folderId].name
+				NAME: folder.name
 			})}
 		</div>
 
@@ -214,3 +214,4 @@
 		</div>
 	</div>
 {/if}
+

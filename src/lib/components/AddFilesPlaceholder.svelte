@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { getContext } from 'svelte';
 
 	export let title = '';

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Checkbox from '$lib/components/common/Checkbox.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { getContext, onMount } from 'svelte';

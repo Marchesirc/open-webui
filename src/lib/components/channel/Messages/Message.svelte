@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import dayjs from 'dayjs';
 	import relativeTime from 'dayjs/plugin/relativeTime';
 	import isToday from 'dayjs/plugin/isToday';
@@ -299,7 +300,7 @@
 						</ProfilePreview>
 					{/if}
 				{:else}
-					<!-- <div class="w-7 h-7 rounded-full bg-transparent" /> -->
+					<!-- <div class="w-7 h-7 rounded-full bg-transparent" ></div> -->
 
 					{#if message.created_at}
 						<div

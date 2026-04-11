@@ -22,6 +22,7 @@ def create_insecure_httpx_client(headers=None, timeout=None, auth=None):
     kwargs = {
         'follow_redirects': True,
         'verify': False,
+        'trust_env': False,
     }
     if timeout is not None:
         kwargs['timeout'] = timeout

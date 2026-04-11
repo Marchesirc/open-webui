@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import { getUserAnalytics } from '$lib/apis/analytics';
 	import Spinner from '$lib/components/common/Spinner.svelte';

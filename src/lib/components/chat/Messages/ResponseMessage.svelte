@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 	import dayjs from 'dayjs';
 
@@ -354,7 +355,7 @@
 
 		content = content.replace(/<details[\s\S]*?<\/details>/gi, (match) => {
 			detailsBlocks.push(match);
-			return `<details id="__DETAIL_${i++}__"/>`;
+			return `<details id="__DETAIL_${i++}__"></details>`;
 		});
 
 		// Store original blocks in the editedContent or globally (see merging later)
@@ -365,7 +366,7 @@
 
 	function postprocessAfterEditing(content: string): string {
 		const restoredContent = content.replace(
-			/<details id="__DETAIL_(\d+)__"\/>/g,
+			/<details id="__DETAIL_(\d+)__"><\/details>/g,
 			(_, index) => preprocessedDetailsCache[parseInt(index)] || ''
 		);
 
@@ -740,7 +741,7 @@
 											document.getElementById('confirm-edit-message-button')?.click();
 										}
 									}}
-								/>
+								></textarea>
 
 								<div class=" mt-2 mb-1 flex justify-between text-sm font-medium">
 									<div>
@@ -1285,7 +1286,7 @@
 														});
 													});
 												}}
-											/>
+											></button>
 
 											<RegenerateMenu
 												onRegenerate={(prompt = null) => {

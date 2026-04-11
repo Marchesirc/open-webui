@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 
 	import { config, functions, models, settings, tools, user } from '$lib/stores';

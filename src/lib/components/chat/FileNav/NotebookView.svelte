@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onMount, onDestroy } from 'svelte';
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';

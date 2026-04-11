@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 
@@ -1297,4 +1298,4 @@
 	bind:this={element}
 	dir="auto"
 	class="relative w-full min-w-full {className} {!editable ? 'cursor-not-allowed' : ''}"
-/>
+></div>

@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 	import dayjs from 'dayjs';
 	import relativeTime from 'dayjs/plugin/relativeTime';

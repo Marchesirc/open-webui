@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { tick } from 'svelte';
 

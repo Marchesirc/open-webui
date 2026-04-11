@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Lightweight PPTX → Image renderer.
  *

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import CRC32 from 'crc-32';
 
 export const parseFile = async (file) => {

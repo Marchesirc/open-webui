@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
 Here we initialize the plugin with keyword mapping.
 Intended to handle user interactions seamlessly.

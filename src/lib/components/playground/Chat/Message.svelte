@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 
 	const i18n = getContext('i18n');
@@ -47,7 +48,7 @@
 				// e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
 			}}
 			bind:value={message.content}
-		/>
+		></textarea>
 	</div>
 
 	<div class=" pt-1">

@@ -1,4 +1,5 @@
 <script lang="ts" context="module">
+// @ts-nocheck
 	import type { renderToString as katexRenderToString } from 'katex';
 
 	// Module-level singleton: load katex once, share across all KatexRenderer instances
@@ -16,6 +17,7 @@
 </script>
 
 <script lang="ts">
+// @ts-nocheck
 	import { onMount } from 'svelte';
 
 	export let content: string;

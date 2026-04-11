@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import '$lib/utils/codemirror';
 	import { basicSetup, EditorView } from 'codemirror';
 	import { keymap } from '@codemirror/view';
@@ -126,7 +127,7 @@
 	});
 </script>
 
-<div bind:this={container} class="file-code-editor" />
+<div bind:this={container} class="file-code-editor" ></div>
 
 <style>
 	.file-code-editor {

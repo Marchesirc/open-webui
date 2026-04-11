@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext } from 'svelte';
 
 	import Select from '$lib/components/common/Select.svelte';

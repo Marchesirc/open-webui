@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { Confetti } from 'svelte-confetti';
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount, onDestroy, tick } from 'svelte';

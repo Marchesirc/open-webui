@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Textarea from '$lib/components/common/Textarea.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';

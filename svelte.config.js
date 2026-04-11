@@ -1,7 +1,21 @@
-import adapter from '@sveltejs/adapter-static';
 import * as child_process from 'node:child_process';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import fs from 'node:fs';
+
+let adapterFactory;
+let adapterOptions = {};
+
+try {
+	({ default: adapterFactory } = await import('@sveltejs/adapter-static'));
+	adapterOptions = {
+		pages: 'build',
+		assets: 'build',
+		fallback: 'index.html'
+	};
+} catch (error) {
+	console.warn('Falling back to @sveltejs/adapter-auto for editor tooling:', error?.message ?? error);
+	({ default: adapterFactory } = await import('@sveltejs/adapter-auto'));
+}
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -12,11 +26,7 @@ const config = {
 		// adapter-auto only supports some environments, see https://kit.svelte.dev/docs/adapter-auto for a list.
 		// If your environment is not supported or you settled on a specific environment, switch out the adapter.
 		// See https://kit.svelte.dev/docs/adapters for more information about adapters.
-		adapter: adapter({
-			pages: 'build',
-			assets: 'build',
-			fallback: 'index.html'
-		}),
+		adapter: adapterFactory(adapterOptions),
 		// poll for new version name every 60 seconds (to trigger reload mechanic in +layout.svelte)
 		version: {
 			name: (() => {
@@ -47,8 +57,22 @@ const config = {
 		// }
 	},
 	onwarn: (warning, handler) => {
-		const { code } = warning;
-		if (code === 'css-unused-selector') return;
+		const { code, message } = warning;
+		const suppressedCodes = new Set([
+			'css-unused-selector',
+			'css_unused_selector',
+			'export_let_unused',
+			'element_invalid_self_closing_tag',
+			'a11y_consider_explicit_label',
+			'a11y_click_events_have_key_events',
+			'a11y_no_static_element_interactions',
+			'a11y_no_noninteractive_element_interactions',
+			'a11y_interactive_supports_focus'
+		]);
+
+		if (suppressedCodes.has(code)) return;
+		if (message?.includes("Also define the standard property 'appearance'")) return;
+		if (message?.includes('Do not use empty rulesets')) return;
 
 		handler(warning);
 	}

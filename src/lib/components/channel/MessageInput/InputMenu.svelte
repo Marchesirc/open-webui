@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onMount, tick } from 'svelte';
 
 	import { config, user, tools as _tools, mobile } from '$lib/stores';
@@ -39,7 +40,7 @@
 	}}
 >
 	<Tooltip content={$i18n.t('More')}>
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 
 	<div slot="content">

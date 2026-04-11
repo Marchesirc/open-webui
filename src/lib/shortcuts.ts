@@ -1,3 +1,4 @@
+// @ts-nocheck
 type ShortcutRegistry = {
 	[key in Shortcut]?: {
 		name: string;

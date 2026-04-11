@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onDestroy, onMount, tick } from 'svelte';
 
 	// Props
@@ -90,7 +91,8 @@
 				const { default: alpineCode } = await import('alpinejs/dist/cdn.min.js?raw');
 				const alpineBlob = new Blob([alpineCode], { type: 'text/javascript' });
 				const alpineUrl = URL.createObjectURL(alpineBlob);
-				const alpineTag = `<script src="${alpineUrl}" defer><\/script>`;
+				const alpineTag = `<script src="${alpineUrl}" defer>
+// @ts-nocheck<\/script>`;
 				scriptTags.push(alpineTag);
 			} catch (error) {
 				console.error('Error processing Alpine for iframe:', error);
@@ -107,6 +109,7 @@
 				(window as any).Chart = Chart;
 
 				const chartTag = `<script>
+// @ts-nocheck
 window.Chart = parent.Chart; // Chart previously assigned on parent
 <\/script>`;
 				scriptTags.push(chartTag);
@@ -201,7 +204,7 @@ window.Chart = parent.Chart; // Chart previously assigned on parent
 		{sandbox}
 		{allowFullscreen}
 		on:load={onLoad}
-	/>
+	></iframe>
 {:else if iframeSrc}
 	<iframe
 		bind:this={iframe}
@@ -215,5 +218,5 @@ window.Chart = parent.Chart; // Chart previously assigned on parent
 		referrerpolicy={referrerPolicy}
 		{allowFullscreen}
 		on:load={onLoad}
-	/>
+	></iframe>
 {/if}

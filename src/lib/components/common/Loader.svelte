@@ -44,5 +44,5 @@
 </script>
 
 <div bind:this={loaderElement}>
-	<slot />
+	<slot ></slot>
 </div>

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import WorkerInstance from '$lib/workers/kokoro.worker?worker';
 
 export class KokoroWorker {

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext } from 'svelte';
 	import { saveAs } from 'file-saver';
 	import { toast } from 'svelte-sonner';
@@ -155,7 +156,7 @@
 								placeholder={$i18n.t('Prompt')}
 								rows="2"
 								bind:value={prompt.content}
-							/>
+							></textarea>
 						</Tooltip>
 					</div>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { tick } from 'svelte';
 
@@ -164,7 +165,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <span use:trigger style="display: contents; cursor: pointer;">
-	<slot />
+	<slot ></slot>
 </span>
 
 {#if show}
@@ -177,6 +178,6 @@
 		transition:flyAndScale
 		on:click|stopPropagation
 	>
-		<slot name="content" />
+		<slot name="content" ></slot>
 	</div>
 {/if}

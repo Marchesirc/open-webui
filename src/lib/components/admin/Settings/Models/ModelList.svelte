@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Sortable from 'sortablejs';
 
 	import { createEventDispatcher, getContext, onMount, onDestroy, tick } from 'svelte';

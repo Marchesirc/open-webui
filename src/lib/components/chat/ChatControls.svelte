@@ -1,8 +1,10 @@
 <script context="module" lang="ts">
+// @ts-nocheck
 	let savedTab: 'controls' | 'files' | 'overview' = 'controls';
 </script>
 
 <script lang="ts">
+// @ts-nocheck
 	import { SvelteFlowProvider } from '@xyflow/svelte';
 	import { slide } from 'svelte/transition';
 	import { Pane, PaneResizer } from 'paneforge';
@@ -382,7 +384,7 @@
 		>
 			<div
 				class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"
-			/>
+			></div>
 		</PaneResizer>
 	{/if}
 

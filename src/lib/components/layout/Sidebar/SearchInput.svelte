@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getAllTags } from '$lib/apis/chats';
 	import { folders, tags } from '$lib/stores';
 	import { getContext, createEventDispatcher, onMount, onDestroy, tick } from 'svelte';

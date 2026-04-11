@@ -41,6 +41,7 @@ from open_webui.models.users import UserModel
 from open_webui.models.groups import Groups
 from open_webui.models.access_grants import AccessGrants
 from open_webui.utils.plugin import load_tool_module_by_id
+from open_webui.utils.mcp.client import MCPClient
 from open_webui.utils.access_control import has_access, has_connection_access
 from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
 from open_webui.env import (
@@ -825,7 +826,7 @@ async def get_terminal_cwd(
         cwd_url = f'{base_url.rstrip("/")}/files/cwd'
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=5),
-            trust_env=True,
+            trust_env=False,
         ) as session:
             async with session.get(cwd_url, headers=headers, cookies=cookies or {}) as resp:
                 if resp.status == 200:
@@ -851,7 +852,7 @@ async def get_terminal_system_prompt(
     try:
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=3),
-            trust_env=True,
+            trust_env=False,
         ) as session:
             # 1. Check feature flag
             async with session.get(f'{base}/api/config') as resp:
@@ -1054,7 +1055,7 @@ async def get_tool_server_data(url: str, headers: Optional[dict]) -> Dict[str, A
     error = None
     try:
         timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
-        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
             async with session.get(url, headers=_headers, ssl=AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL) as response:
                 if response.status != 200:
                     error_body = await response.json()
@@ -1089,13 +1090,38 @@ async def get_tool_server_data(url: str, headers: Optional[dict]) -> Dict[str, A
     return res
 
 
+async def get_mcp_tool_server_data(url: str, headers: Optional[dict]) -> Dict[str, Any]:
+    client = MCPClient()
+    try:
+        await client.connect(url, headers=headers)
+        specs = await client.list_tool_specs() or []
+        resources = await client.list_resources() or []
+        return {
+            'info': {
+                'title': 'MCP Tool Server',
+                'description': f'MCP tool server at {url}',
+            },
+            'specs': specs,
+            'resources': resources,
+        }
+    except Exception as err:
+        log.exception(f'Could not fetch MCP tool specs from {url}')
+        raise Exception(str(err))
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+
 async def get_tool_servers_data(servers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     # Prepare list of enabled servers along with their original index
 
     tasks = []
     server_entries = []
     for idx, server in enumerate(servers):
-        if server.get('config', {}).get('enable') and server.get('type', 'openapi') == 'openapi':
+        server_type = server.get('type', 'openapi')
+        if server.get('config', {}).get('enable') and server_type in ('openapi', 'mcp'):
             info = server.get('info', {})
 
             auth_type = server.get('auth_type', 'bearer')
@@ -1116,17 +1142,21 @@ async def get_tool_servers_data(servers: List[Dict[str, Any]]) -> List[Dict[str,
 
             # Create async tasks to fetch data
             task = None
+            resolved_url = (server_url or '').rstrip('/')
             if spec_type == 'url':
-                # Path (to OpenAPI spec URL) can be either a full URL or a path to append to the base URL
-                openapi_path = server.get('path', 'openapi.json')
-                spec_url = get_tool_server_url(server_url, openapi_path)
-                # Fetch from URL
-                task = get_tool_server_data(
-                    spec_url,
-                    {'Authorization': f'Bearer {token}'} if token else None,
-                )
+                server_path = server.get('path', 'openapi.json' if server_type == 'openapi' else '/mcp')
+                resolved_url = get_tool_server_url(server_url, server_path)
+                if server_type == 'mcp':
+                    task = get_mcp_tool_server_data(
+                        resolved_url,
+                        {'Authorization': f'Bearer {token}'} if token else None,
+                    )
+                else:
+                    task = get_tool_server_data(
+                        resolved_url,
+                        {'Authorization': f'Bearer {token}'} if token else None,
+                    )
             elif spec_type == 'json' and server.get('spec', ''):
-                # Use provided JSON spec
                 spec_json = None
                 try:
                     spec_json = json.loads(server.get('spec', ''))
@@ -1134,28 +1164,47 @@ async def get_tool_servers_data(servers: List[Dict[str, Any]]) -> List[Dict[str,
                     log.error(f'Error parsing JSON spec for tool server {id}: {e}')
 
                 if spec_json:
-                    task = asyncio.sleep(
-                        0,
-                        result=spec_json,
-                    )
+                    task = asyncio.sleep(0, result=spec_json)
 
             if task:
                 tasks.append(task)
-                server_entries.append((id, idx, server, server_url, info, token))
+                server_entries.append((id, idx, server, resolved_url, info, token, server_type))
 
-    # Execute tasks concurrently
     responses = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Build final results with index and server metadata
     results = []
-    for (id, idx, server, url, info, _), response in zip(server_entries, responses):
+    for (id, idx, server, resolved_url, info, _, server_type), response in zip(server_entries, responses):
         if isinstance(response, Exception):
-            log.error(f'Failed to connect to {url} OpenAPI tool server')
+            log.error(f'Failed to connect to {resolved_url} {server_type} tool server')
             continue
 
-        # Guard against invalid or non-OpenAPI specs (e.g., MCP-style configs)
+        if server_type == 'mcp':
+            if not isinstance(response, dict) or 'specs' not in response:
+                log.warning(f"Invalid MCP spec from {resolved_url}: missing 'specs'")
+                continue
+
+            merged_info = response.get('info', {}) or {}
+            if info:
+                if 'name' in info:
+                    merged_info['title'] = info.get('name', merged_info.get('title', 'MCP Tool Server'))
+                if 'description' in info:
+                    merged_info['description'] = info.get('description', merged_info.get('description', ''))
+
+            results.append(
+                {
+                    'id': str(id),
+                    'idx': idx,
+                    'url': resolved_url.rstrip('/'),
+                    'info': merged_info,
+                    'specs': response.get('specs', []),
+                    'resources': response.get('resources', []),
+                    'type': 'mcp',
+                }
+            )
+            continue
+
         if not isinstance(response, dict) or 'paths' not in response:
-            log.warning(f"Invalid OpenAPI spec from {url}: missing 'paths'")
+            log.warning(f"Invalid OpenAPI spec from {resolved_url}: missing 'paths'")
             continue
 
         response = {
@@ -1182,6 +1231,7 @@ async def get_tool_servers_data(servers: List[Dict[str, Any]]) -> List[Dict[str,
                 'openapi': openapi_data,
                 'info': response.get('info'),
                 'specs': response.get('specs'),
+                'type': 'openapi',
             }
         )
 
@@ -1198,6 +1248,18 @@ async def execute_tool_server(
 ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
     error = None
     try:
+        if server_data.get('type') == 'mcp':
+            client = MCPClient()
+            try:
+                await client.connect(server_data.get('url', url), headers=headers)
+                result = await client.call_tool(name, params)
+                return result, None
+            finally:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+
         openapi = server_data.get('openapi', {})
         paths = openapi.get('paths', {})
 
@@ -1259,7 +1321,7 @@ async def execute_tool_server(
                 body_params = params
 
         async with aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER)
+            trust_env=False, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER)
         ) as session:
             request_method = getattr(session, http_method.lower())
 

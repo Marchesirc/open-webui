@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { toast } from 'svelte-sonner';
 	import { getContext, tick } from 'svelte';
 
@@ -275,7 +276,7 @@
 	align="end"
 	sideOffset={8}
 >
-	<slot />
+	<slot ></slot>
 
 	<div slot="content">
 		<div

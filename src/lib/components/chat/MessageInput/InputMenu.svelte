@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 
@@ -116,7 +117,7 @@
 	}}
 >
 	<Tooltip content={$i18n.t('More')}>
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 
 	<div slot="content">

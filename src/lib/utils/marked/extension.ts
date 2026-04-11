@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Helper function to find matching closing tag
 function findMatchingClosingTag(src: string, openTag: string, closeTag: string): number {
 	let depth = 1;

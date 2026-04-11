@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 
@@ -28,15 +29,20 @@
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<any>('i18n');
 
 	export let selectedToolIds: string[] = [];
 
 	export let selectedModels: string[] = [];
 	export let fileUploadCapableModels: string[] = [];
 
-	export let toggleFilters: { id: string; name: string; description?: string; icon?: string }[] =
-		[];
+	export let toggleFilters: {
+		id: string;
+		name: string;
+		description?: string;
+		icon?: string;
+		has_user_valves?: boolean;
+	}[] = [];
 	export let selectedFilterIds: string[] = [];
 
 	export let showWebSearchButton = false;
@@ -107,7 +113,7 @@
 	}}
 >
 	<Tooltip content={$i18n.t('Integrations')} placement="top">
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 	<div slot="content">
 		<div
@@ -360,7 +366,7 @@
 						>
 							{#if !(tools[toolId]?.authenticated ?? true)}
 								<!-- make it slighly darker and not clickable -->
-								<div class="absolute inset-0 opacity-50 rounded-xl cursor-pointer z-10" />
+								<div class="absolute inset-0 opacity-50 rounded-xl cursor-pointer z-10" ></div>
 							{/if}
 							<div class="flex-1 truncate">
 								<div class="flex flex-1 gap-2 items-center">

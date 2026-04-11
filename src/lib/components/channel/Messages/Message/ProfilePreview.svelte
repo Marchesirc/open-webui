@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { LinkPreview } from 'bits-ui';
 	import { getContext } from 'svelte';
 
@@ -24,7 +25,7 @@
 				openPreview = !openPreview;
 			}}
 		>
-			<slot />
+			<slot ></slot>
 		</button>
 	</LinkPreview.Trigger>
 

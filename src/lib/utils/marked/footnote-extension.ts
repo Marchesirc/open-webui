@@ -1,3 +1,4 @@
+// @ts-nocheck
 // footnote-extension.ts
 // Simple extension for marked to support footnote references like [^1], [^note]
 

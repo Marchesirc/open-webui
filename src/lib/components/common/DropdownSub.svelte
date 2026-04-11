@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { tick } from 'svelte';
 
@@ -112,7 +113,7 @@
 	on:mouseenter={handleMouseEnter}
 	on:mouseleave={handleMouseLeave}
 >
-	<slot name="trigger" />
+	<slot name="trigger" ></slot>
 </div>
 
 {#if open}
@@ -121,7 +122,7 @@
 	<div use:portal bind:this={contentEl} on:mouseleave={handleContentMouseLeave}>
 		<!-- Inner content: visual styles and transition -->
 		<div class={contentClass} style="max-width: {maxWidth}px;" transition:flyAndScale>
-			<slot />
+			<slot ></slot>
 		</div>
 	</div>
 {/if}

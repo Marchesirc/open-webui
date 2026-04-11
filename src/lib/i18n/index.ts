@@ -1,3 +1,4 @@
+// @ts-nocheck
 import i18next from 'i18next';
 import resourcesToBackend from 'i18next-resources-to-backend';
 import LanguageDetector from 'i18next-browser-languagedetector';

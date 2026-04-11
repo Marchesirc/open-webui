@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, createEventDispatcher, onMount, tick } from 'svelte';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';

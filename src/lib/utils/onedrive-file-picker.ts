@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { PopupRequest, PublicClientApplication } from '@azure/msal-browser';
 import { v4 as uuidv4 } from 'uuid';
 

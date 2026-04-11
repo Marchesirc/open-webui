@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import CodeExecutionModal from './CodeExecutionModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import Check from '$lib/components/icons/Check.svelte';

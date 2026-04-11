@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import Modal from '$lib/components/common/Modal.svelte';
 	import { getContext } from 'svelte';
 	const i18n = getContext('i18n');

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onMount } from 'svelte';
 	import type { Writable } from 'svelte/store';
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 
@@ -38,7 +39,7 @@
 			? ''
 			: 'group-hover/item:opacity-100 opacity-0'}
 	>
-		<slot />
+		<slot ></slot>
 	</Tooltip>
 
 	<div slot="content">

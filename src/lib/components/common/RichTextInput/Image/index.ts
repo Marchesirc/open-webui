@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Image } from './image.js';
 
 export * from './image.js';

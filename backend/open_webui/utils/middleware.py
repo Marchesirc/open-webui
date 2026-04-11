@@ -104,6 +104,7 @@ from open_webui.utils.tools import (
     get_tools,
     get_updated_tool_function,
     get_terminal_tools,
+    get_tool_server_url,
 )
 from open_webui.utils.access_control import has_connection_access
 from open_webui.utils.plugin import load_function_module_by_id
@@ -1244,13 +1245,171 @@ async def chat_completion_tools_handler(
     tools_function_calling_prompt = tools_function_calling_generation_template(template, tools_specs)
     payload = get_tools_function_calling_payload(body['messages'], task_model_id, tools_function_calling_prompt)
 
+    user_message_text = (get_last_user_message(body['messages']) or '').lower()
+    direct_tool_calls = []
+
+    async def disconnect_mcp_tool_clients():
+        seen_clients = set()
+        for tool in tools.values():
+            client = tool.get('client')
+            if not client:
+                continue
+
+            client_key = id(client)
+            if client_key in seen_clients:
+                continue
+            seen_clients.add(client_key)
+
+            try:
+                await client.disconnect()
+            except Exception as e:
+                log.debug(f'Error disconnecting MCP client: {e}')
+
+    local_service_keywords = (
+        'serviço',
+        'servicos',
+        'serviços',
+        'porta',
+        'portas',
+        'endpoint',
+        'endpoints',
+        'local pc mcp',
+        'mcp',
+        'mcp-server',
+        'mcp server',
+    )
+    automation_keywords = ('automa', 'automation', 'agendad', 'task', 'tarefas')
+    capability_keywords = (
+        'o que consegue',
+        'o que pode',
+        'o que faz',
+        'desenvolver',
+        'desenvolve',
+        'capacidade',
+        'capacidades',
+        'ferramentas',
+        'funções',
+        'funcoes',
+        'via mcp',
+        'mcp-server',
+        'mcp server',
+    )
+
+    wants_capabilities = any(keyword in user_message_text for keyword in capability_keywords)
+
+    if 'check_local_services' in tools and (
+        'check_local_services' in user_message_text
+        or any(keyword in user_message_text for keyword in local_service_keywords)
+    ):
+        direct_tool_calls.append({'name': 'check_local_services', 'parameters': {}})
+
+    if 'list_available_automations' in tools and (
+        'list_available_automations' in user_message_text
+        or any(keyword in user_message_text for keyword in automation_keywords)
+        or wants_capabilities
+    ):
+        direct_tool_calls.append({'name': 'list_available_automations', 'parameters': {}})
+
+    if 'get_pc_summary' in tools and wants_capabilities:
+        direct_tool_calls.append({'name': 'get_pc_summary', 'parameters': {}})
+
+    async def execute_preselected_tool_call(tool_call):
+        nonlocal skip_files
+
+        tool_function_name = tool_call.get('name', None)
+        if tool_function_name not in tools:
+            return
+
+        tool_function_params = tool_call.get('parameters', {}) or {}
+        tool = tools[tool_function_name]
+        tool_type = tool.get('type', '')
+        direct_tool = tool.get('direct', False)
+
+        try:
+            spec = tool.get('spec', {})
+            allowed_params = spec.get('parameters', {}).get('properties', {}).keys()
+            tool_function_params = {k: v for k, v in tool_function_params.items() if k in allowed_params}
+
+            if direct_tool:
+                if event_caller:
+                    tool_result = await event_caller(
+                        {
+                            'type': 'execute:tool',
+                            'data': {
+                                'id': str(uuid4()),
+                                'name': tool_function_name,
+                                'params': tool_function_params,
+                                'server': tool.get('server', {}),
+                                'session_id': metadata.get('session_id', None),
+                            },
+                        }
+                    )
+                else:
+                    tool_result = 'Direct tool call unavailable for this request.'
+            else:
+                tool_function = tool['callable']
+                tool_result = await tool_function(**tool_function_params)
+        except Exception as e:
+            tool_result = str(e)
+
+        tool_result, tool_result_files, tool_result_embeds = process_tool_result(
+            request,
+            tool_function_name,
+            tool_result,
+            tool_type,
+            direct_tool,
+            metadata,
+            user,
+        )
+
+        if event_emitter:
+            await terminal_event_handler(
+                tool_function_name,
+                tool_function_params,
+                tool_result,
+                event_emitter,
+            )
+
+            if tool_result_files:
+                await event_emitter({'type': 'files', 'data': {'files': tool_result_files}})
+
+            if tool_result_embeds:
+                await event_emitter({'type': 'embeds', 'data': {'embeds': tool_result_embeds}})
+
+        if tool_result:
+            tool_id = tool.get('tool_id', '')
+            tool_name = f'{tool_id}/{tool_function_name}' if tool_id else f'{tool_function_name}'
+            sources.append(
+                {
+                    'source': {'name': tool_name},
+                    'document': [str(tool_result)],
+                    'metadata': [
+                        {
+                            'source': tool_name,
+                            'parameters': tool_function_params,
+                        }
+                    ],
+                    'tool_result': True,
+                }
+            )
+
+            if tools[tool_function_name].get('metadata', {}).get('file_handler', False):
+                skip_files = True
+
     try:
+        if direct_tool_calls:
+            for tool_call in direct_tool_calls:
+                await execute_preselected_tool_call(tool_call)
+            await disconnect_mcp_tool_clients()
+            return body, {'sources': sources}
+
         response = await generate_chat_completion(request, form_data=payload, user=user)
         log.debug(f'{response=}')
         content = await get_content_from_response(response)
         log.debug(f'{content=}')
 
         if not content:
+            await disconnect_mcp_tool_clients()
             return body, {}
 
         try:
@@ -1384,9 +1543,31 @@ async def chat_completion_tools_handler(
 
     log.debug(f'tool_contexts: {sources}')
 
+    if sources:
+        verified_tool_results = []
+        for source in sources:
+            source_name = source.get('source', {}).get('name', 'tool')
+            documents = source.get('document') or []
+            if documents:
+                verified_tool_results.append(f'{source_name}:\n{documents[0]}')
+
+        if verified_tool_results:
+            body['messages'] = add_or_update_system_message(
+                'The requested tools have already been executed successfully and the results below are verified local results. '
+                'You MUST answer using these verified results only. '
+                'Do NOT say that you do not have access to the computer, services, files, or environment. '
+                'Do NOT give generic manual instructions when verified tool results are available.\n\n'
+                '<verified_tool_results>\n'
+                + '\n\n'.join(verified_tool_results)
+                + '\n</verified_tool_results>',
+                body['messages'],
+                append=True,
+            )
+
     if skip_files and 'files' in body.get('metadata', {}):
         del body['metadata']['files']
 
+    await disconnect_mcp_tool_clients()
     return body, {'sources': sources}
 
 
@@ -2536,8 +2717,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                                 headers[FORWARD_SESSION_INFO_HEADER_MESSAGE_ID] = metadata.get('message_id')
 
                         mcp_clients[server_id] = MCPClient()
+                        resolved_mcp_url = get_tool_server_url(
+                            mcp_server_connection.get('url', ''),
+                            mcp_server_connection.get('path', '/mcp'),
+                        )
                         await mcp_clients[server_id].connect(
-                            url=mcp_server_connection.get('url', ''),
+                            url=resolved_mcp_url,
                             headers=headers if headers else None,
                         )
 
@@ -2560,17 +2745,22 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
                                 return tool_function
 
+                            original_name = tool_spec['name']
                             if function_name_filter_list:
-                                if not is_string_allowed(tool_spec['name'], function_name_filter_list):
+                                if not is_string_allowed(original_name, function_name_filter_list):
                                     # Skip this function
                                     continue
 
-                            tool_function = make_tool_function(mcp_clients[server_id], tool_spec['name'])
+                            resolved_name = original_name
+                            if resolved_name in tools_dict or resolved_name in mcp_tools_dict:
+                                resolved_name = f'{server_id}_{original_name}'
 
-                            mcp_tools_dict[f'{server_id}_{tool_spec["name"]}'] = {
+                            tool_function = make_tool_function(mcp_clients[server_id], original_name)
+
+                            mcp_tools_dict[resolved_name] = {
                                 'spec': {
                                     **tool_spec,
-                                    'name': f'{server_id}_{tool_spec["name"]}',
+                                    'name': resolved_name,
                                 },
                                 'callable': tool_function,
                                 'type': 'mcp',

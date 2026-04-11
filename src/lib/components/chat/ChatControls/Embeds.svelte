@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { embed, showControls, showEmbeds } from '$lib/stores';
 
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';

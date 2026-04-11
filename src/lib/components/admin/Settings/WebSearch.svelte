@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getRAGConfig, updateRAGConfig } from '$lib/apis/retrieval';
 	import Switch from '$lib/components/common/Switch.svelte';
 

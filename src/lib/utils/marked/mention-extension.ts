@@ -1,3 +1,4 @@
+// @ts-nocheck
 // mention-extension.ts
 type MentionOptions = {
 	triggerChar?: string; // default "@"

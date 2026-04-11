@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { getContext, onMount, tick } from 'svelte';
 	import { models, config } from '$lib/stores';
 
@@ -331,7 +332,7 @@
 														autocomplete="off"
 														id="input-variable-{idx}"
 														required={variables[variable]?.required ?? false}
-													/>
+													></textarea>
 												{/if}
 											</div>
 										</div>

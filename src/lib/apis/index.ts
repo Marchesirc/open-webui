@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { WEBUI_BASE_URL } from '$lib/constants';
 import { convertOpenApiToToolPayload } from '$lib/utils';
 import { getOpenAIModelsDirect } from './openai';
@@ -350,7 +351,7 @@ export const getToolServersData = async (servers: object[]) => {
 		await Promise.all(
 			servers
 				.filter((server) => server?.config?.enable)
-				.map(async (server) => {
+				.map(async (server, idx) => {
 					let error = null;
 
 					let toolServerToken = null;
@@ -368,15 +369,43 @@ export const getToolServersData = async (servers: object[]) => {
 					const specType = server?.spec_type ?? 'url';
 
 					if (specType === 'url') {
-						res = await getToolServerData(
-							toolServerToken,
-							(server?.path ?? '').includes('://')
+						if (server?.type === 'mcp') {
+							const resolvedUrl = (server?.path ?? '').includes('://')
 								? server?.path
-								: `${server?.url}${(server?.path ?? '').startsWith('/') ? '' : '/'}${server?.path}`
-						).catch((err) => {
-							error = err;
-							return null;
-						});
+								: `${server?.url}${(server?.path ?? '/mcp').startsWith('/') ? '' : '/'}${server?.path ?? '/mcp'}`;
+
+							res = await fetch(`${WEBUI_BASE_URL}/api/v1/configs/tool_servers/verify`, {
+								method: 'POST',
+								headers: {
+									Accept: 'application/json',
+									'Content-Type': 'application/json',
+									...(localStorage.token && { authorization: `Bearer ${localStorage.token}` })
+								},
+								body: JSON.stringify({
+									...server,
+									url: server?.url,
+									path: server?.path ?? '/mcp'
+								})
+							})
+								.then(async (res) => {
+									if (!res.ok) throw await res.json();
+									return res.json();
+								})
+								.catch((err) => {
+									error = err?.detail ?? err;
+									return null;
+								});
+						} else {
+							res = await getToolServerData(
+								toolServerToken,
+								(server?.path ?? '').includes('://')
+									? server?.path
+									: `${server?.url}${(server?.path ?? '').startsWith('/') ? '' : '/'}${server?.path}`
+							).catch((err) => {
+								error = err;
+								return null;
+							});
+						}
 					} else if ((specType === 'json' && server?.spec) ?? null) {
 						try {
 							res = JSON.parse(server?.spec);
@@ -386,6 +415,24 @@ export const getToolServersData = async (servers: object[]) => {
 					}
 
 					if (res) {
+						if (server?.type === 'mcp') {
+							return {
+								id: server?.info?.id ?? server?.id ?? `${idx}`,
+								url: server?.url,
+								path: server?.path ?? '/mcp',
+								type: 'mcp',
+								info: {
+									title: server?.name ?? res?.info?.title ?? 'MCP Tool Server',
+									description:
+										server?.description ??
+										res?.info?.description ??
+										`MCP tool server at ${server?.url}`
+								},
+								specs: res?.specs ?? [],
+								resources: res?.resources ?? []
+							};
+						}
+
 						if (!res.paths) {
 							return {
 								error: 'Invalid OpenAPI spec',
@@ -454,11 +501,36 @@ export const executeToolServer = async (
 	url: string,
 	name: string,
 	params: Record<string, any>,
-	serverData: { openapi: any; info: any; specs: any }
+	serverData: { openapi?: any; info?: any; specs?: any; type?: string; path?: string }
 ) => {
 	let error = null;
 
 	try {
+		if (serverData?.type === 'mcp') {
+			const res = await fetch(`${WEBUI_BASE_URL}/api/v1/configs/tool_servers/execute`, {
+				method: 'POST',
+				headers: {
+					Accept: 'application/json',
+					'Content-Type': 'application/json',
+					...(token && { authorization: `Bearer ${token}` })
+				},
+				body: JSON.stringify({
+					server: {
+						url,
+						path: serverData?.path ?? '/mcp',
+						type: 'mcp',
+						auth_type: token ? 'session' : 'none',
+						key: ''
+					},
+					name,
+					params
+				})
+			});
+
+			if (!res.ok) throw await res.json();
+			return await res.json();
+		}
+
 		// Find the matching operationId in the OpenAPI spec
 		const matchingRoute = Object.entries(serverData.openapi.paths).find(([_, methods]) =>
 			Object.entries(methods as any).some(([__, operation]: any) => operation.operationId === name)

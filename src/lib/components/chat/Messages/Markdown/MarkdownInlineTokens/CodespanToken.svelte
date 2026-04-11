@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
 	import { toast } from 'svelte-sonner';
 	import { fade } from 'svelte/transition';

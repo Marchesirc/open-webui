@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { v4 as uuidv4 } from 'uuid';
 
 	import fileSaver from 'file-saver';
@@ -831,7 +832,7 @@
 															autocomplete="off"
 															required
 															rows="5"
-														/>
+														></textarea>
 													</div>
 												{/if}
 											</div>

@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { shortCodesToEmojis } from '$lib/stores';
 

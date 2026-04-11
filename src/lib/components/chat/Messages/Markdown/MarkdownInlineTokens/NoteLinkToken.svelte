@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import { onMount, getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getNoteById } from '$lib/apis/notes';

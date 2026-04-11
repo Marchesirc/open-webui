@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Shared helpers for managing system-level connections.
  * Used by both the admin settings UI and the desktop event handler

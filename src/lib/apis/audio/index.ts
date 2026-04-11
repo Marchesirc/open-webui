@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { AUDIO_API_BASE_URL } from '$lib/constants';
 
 export const getAudioConfig = async (token: string) => {

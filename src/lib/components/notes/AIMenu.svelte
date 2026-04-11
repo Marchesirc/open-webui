@@ -13,7 +13,7 @@
 	export let onEdit = () => {};
 	export let onChat = () => {};
 
-	export let onChange = () => {};
+	export let onChange = (state: boolean) => {};
 </script>
 
 <Dropdown
@@ -24,7 +24,7 @@
 		onChange(state);
 	}}
 >
-	<slot />
+	<slot ></slot>
 
 	<div slot="content">
 		<div

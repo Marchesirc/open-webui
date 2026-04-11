@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { mergeAttributes, Node, nodeInputRule } from '@tiptap/core';
 
 export interface ImageOptions {

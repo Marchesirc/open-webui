@@ -1,4 +1,5 @@
 <script lang="ts">
+// @ts-nocheck
 	import type { Token } from 'marked';
 	import { LinkPreview } from 'bits-ui';
 

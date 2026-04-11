@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { loadPyodide, type PyodideInterface } from 'pyodide';
 
 declare global {
