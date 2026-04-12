@@ -92,13 +92,53 @@ Endpoint OpenAPI:
 POST /pdf/analyze-schematic
 ```
 
+Para manuais grandes ou service guides, use antes:
+
+```text
+POST /pdf/extract-schematic-candidates
+```
+
+Esse endpoint faz triagem de páginas com maior chance de conter diagrama/esquemático, exporta as melhores páginas como PNG em alta resolução e gera um manifesto `candidate_pages.json` para revisão dirigida.
+
+Se houver Tesseract OCR instalado localmente, o bridge agora tenta OCR automaticamente nas páginas com pouco texto extraível.
+
+Exemplo de payload:
+
+```json
+{
+  "pdf_path": "MeuProjeto/manual.pdf",
+  "max_pages": 250,
+  "top_k": 12,
+  "export_pages": true,
+  "export_dpi": 220,
+  "use_ocr_if_needed": true,
+  "ocr_languages": "eng"
+}
+```
+
+Uso recomendado para service guides:
+
+- rode `POST /pdf/extract-schematic-candidates`
+- revise as páginas exportadas com maior score
+- escolha as páginas realmente esquemáticas
+- depois rode `POST /pdf/analyze-schematic` ou `POST /proteus/prepare-assisted-project` focando nesse subconjunto
+
+Observações sobre OCR:
+
+- OCR é opcional e só entra quando a página vier com pouco texto extraível
+- o bridge detecta automaticamente `tesseract.exe` em caminhos comuns do Windows
+- para PDFs mistos em inglês e português, prefira `ocr_languages: "eng+por"`
+- sem o binário do Tesseract, o fluxo continua funcionando em modo degradado
+
 Exemplo de payload:
 
 ```json
 {
   "pdf_path": "MeuProjeto/schematic.pdf",
   "max_pages": 12,
-  "persist_output": true
+  "persist_output": true,
+  "use_ocr_if_needed": true,
+  "ocr_languages": "eng"
 }
 ```
 
@@ -106,6 +146,7 @@ Saida esperada:
 
 - JSON com componentes detectados por referencia
 - sinais provaveis como GND, VCC, SDA, SCL, TX, RX
+- metadados de OCR como `ocr_backend`, `ocr_attempted_pages` e `ocr_used_pages`
 - `readiness` para indicar se o PDF serve como base razoavel para fluxo assistido
 - arquivo `.schematic.analysis.json` salvo ao lado do PDF, quando `persist_output=true`
 
@@ -126,7 +167,9 @@ Payload minimo com PDF:
   "project_folder": "MeuProjeto_Assistido",
   "pdf_path": "MeuProjeto/schematic.pdf",
   "overwrite": true,
-  "copy_source_pdf": true
+  "copy_source_pdf": true,
+  "use_ocr_if_needed": true,
+  "ocr_languages": "eng"
 }
 ```
 

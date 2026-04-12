@@ -24,7 +24,7 @@ if (Test-Path $localVenvPython) {
 
 Write-Host "Usando Python: $pythonCmd" -ForegroundColor Cyan
 
-& $pythonCmd -c "import fastapi, uvicorn, pydantic, psutil, requests, bs4, pypdf; print('deps_ok')" 2>$null | Out-Null
+& $pythonCmd -c "import fastapi, uvicorn, pydantic, psutil, requests, bs4, pypdf, fitz, pytesseract; print('deps_ok')" 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'Instalando dependências do bridge...' -ForegroundColor Yellow
     & $pythonCmd -m pip install -r $requirementsFile

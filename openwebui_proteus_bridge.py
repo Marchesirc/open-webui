@@ -7,6 +7,7 @@ import re
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -333,6 +334,21 @@ class AnalyzeSchematicPdfRequest(BaseModel):
     max_pages: int = Field(default=12, ge=1, le=100)
     persist_output: bool = True
     output_relative_path: Optional[str] = None
+    use_ocr_if_needed: bool = True
+    ocr_languages: str = Field(default="eng", description="Idiomas OCR no formato aceito pelo Tesseract, ex.: eng ou eng+por")
+    ocr_min_text_chars: int = Field(default=80, ge=0, le=2000)
+
+
+class ExtractSchematicCandidatesRequest(BaseModel):
+    pdf_path: str = Field(..., description="Caminho relativo ao projects_root para o PDF do manual ou esquemático")
+    max_pages: int = Field(default=250, ge=1, le=2000)
+    top_k: int = Field(default=12, ge=1, le=100)
+    export_pages: bool = True
+    export_dpi: int = Field(default=220, ge=72, le=600)
+    output_dir: Optional[str] = None
+    use_ocr_if_needed: bool = True
+    ocr_languages: str = Field(default="eng", description="Idiomas OCR no formato aceito pelo Tesseract, ex.: eng ou eng+por")
+    ocr_min_text_chars: int = Field(default=80, ge=0, le=2000)
 
 
 class PrepareProteusAssistedProjectRequest(BaseModel):
@@ -343,6 +359,9 @@ class PrepareProteusAssistedProjectRequest(BaseModel):
     max_pages: int = Field(default=12, ge=1, le=100)
     overwrite: bool = False
     copy_source_pdf: bool = True
+    use_ocr_if_needed: bool = True
+    ocr_languages: str = Field(default="eng", description="Idiomas OCR no formato aceito pelo Tesseract, ex.: eng ou eng+por")
+    ocr_min_text_chars: int = Field(default=80, ge=0, le=2000)
 
 
 def project_root() -> Path:
@@ -617,6 +636,145 @@ def import_pdf_reader() -> Any:
     return PdfReader
 
 
+def import_fitz_module() -> Any:
+    try:
+        import fitz  # type: ignore import-not-found
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Dependência 'PyMuPDF' não encontrada. Execute start_proteus_bridge.ps1 ou instale as dependências de "
+                f"{BASE_DIR / 'openwebui_bridge_requirements.txt'}"
+            ),
+        ) from exc
+    return fitz
+
+
+def import_pytesseract_module(optional: bool = False) -> Any:
+    try:
+        import pytesseract  # type: ignore import-not-found
+    except ImportError:
+        if optional:
+            return None
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Dependência 'pytesseract' não encontrada. Execute start_proteus_bridge.ps1 ou instale as dependências de "
+                f"{BASE_DIR / 'openwebui_bridge_requirements.txt'}"
+            ),
+        )
+    return pytesseract
+
+
+def detect_ocr_backend() -> dict[str, Any]:
+    pytesseract = import_pytesseract_module(optional=True)
+    if pytesseract is None:
+        return {
+            "name": "none",
+            "module": None,
+            "warnings": ["Dependência opcional 'pytesseract' não está instalada; OCR ficará desabilitado."],
+        }
+
+    candidate_paths = [
+        shutil.which("tesseract"),
+        str(Path("C:/Program Files/Tesseract-OCR/tesseract.exe")),
+        str(Path("C:/Program Files (x86)/Tesseract-OCR/tesseract.exe")),
+    ]
+    tesseract_cmd = next((path for path in candidate_paths if path and Path(path).exists()), None)
+    if not tesseract_cmd:
+        return {
+            "name": "none",
+            "module": None,
+            "warnings": [
+                "Binário do Tesseract não foi encontrado. Instale o Tesseract OCR para habilitar OCR forte em PDFs escaneados."
+            ],
+        }
+
+    try:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        version = str(pytesseract.get_tesseract_version())
+    except Exception as exc:
+        return {
+            "name": "none",
+            "module": None,
+            "warnings": [f"Falha ao inicializar OCR Tesseract em '{tesseract_cmd}': {exc}"],
+        }
+
+    return {
+        "name": "tesseract",
+        "module": pytesseract,
+        "command": tesseract_cmd,
+        "version": version,
+        "warnings": [],
+    }
+
+
+def run_ocr_on_pdf_page(
+    document: Any,
+    page_index: int,
+    fitz_module: Any,
+    pytesseract_module: Any,
+    languages: str,
+    dpi: int,
+) -> str:
+    page = document.load_page(page_index)
+    zoom = dpi / 72.0
+    matrix = fitz_module.Matrix(zoom, zoom)
+    pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+        temp_path = Path(temp_file.name)
+    try:
+        pixmap.save(str(temp_path))
+        return (pytesseract_module.image_to_string(str(temp_path), lang=languages) or "").strip()
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def extract_page_text(
+    reader_page: Any,
+    document: Any,
+    page_index: int,
+    use_ocr_if_needed: bool,
+    ocr_languages: str,
+    ocr_min_text_chars: int,
+    ocr_context: dict[str, Any],
+    fitz_module: Any,
+    ocr_dpi: int,
+) -> dict[str, Any]:
+    raw_text = (reader_page.extract_text() or "").strip()
+    result = {
+        "text": raw_text,
+        "text_source": "pdf_text",
+        "ocr_attempted": False,
+        "ocr_applied": False,
+    }
+
+    if not use_ocr_if_needed or ocr_context.get("name") == "none":
+        return result
+
+    if len(raw_text) >= ocr_min_text_chars:
+        return result
+
+    result["ocr_attempted"] = True
+    ocr_text = run_ocr_on_pdf_page(
+        document=document,
+        page_index=page_index,
+        fitz_module=fitz_module,
+        pytesseract_module=ocr_context["module"],
+        languages=ocr_languages,
+        dpi=ocr_dpi,
+    )
+    if len(ocr_text) > len(raw_text):
+        result["text"] = ocr_text
+        result["text_source"] = f"ocr_{ocr_context['name']}"
+        result["ocr_applied"] = True
+
+    return result
+
+
 def infer_component_family(reference: str) -> str:
     prefix = re.match(r"[A-Z]+", reference.upper())
     token = prefix.group(0) if prefix else ""
@@ -647,22 +805,49 @@ def infer_component_family(reference: str) -> str:
     return mapping.get(token, "unknown")
 
 
-def build_schematic_pdf_analysis(pdf_path: Path, max_pages: int) -> dict[str, Any]:
+def build_schematic_pdf_analysis(
+    pdf_path: Path,
+    max_pages: int,
+    use_ocr_if_needed: bool,
+    ocr_languages: str,
+    ocr_min_text_chars: int,
+) -> dict[str, Any]:
     PdfReader = import_pdf_reader()
+    fitz = import_fitz_module()
     reader = PdfReader(str(pdf_path))
+    document = fitz.open(str(pdf_path))
     pages = list(reader.pages[:max_pages])
     text_by_page: list[dict[str, Any]] = []
     component_map: dict[str, dict[str, Any]] = {}
     signal_map: dict[str, dict[str, Any]] = {}
     extracted_chars = 0
+    ocr_context = detect_ocr_backend() if use_ocr_if_needed else {"name": "none", "module": None, "warnings": []}
+    ocr_attempted_pages = 0
+    ocr_used_pages = 0
 
     for index, page in enumerate(pages, start=1):
-        text = (page.extract_text() or "").strip()
+        text_result = extract_page_text(
+            reader_page=page,
+            document=document,
+            page_index=index - 1,
+            use_ocr_if_needed=use_ocr_if_needed,
+            ocr_languages=ocr_languages,
+            ocr_min_text_chars=ocr_min_text_chars,
+            ocr_context=ocr_context,
+            fitz_module=fitz,
+            ocr_dpi=220,
+        )
+        text = text_result["text"]
+        if text_result["ocr_attempted"]:
+            ocr_attempted_pages += 1
+        if text_result["ocr_applied"]:
+            ocr_used_pages += 1
         text_by_page.append(
             {
                 "page_number": index,
                 "characters": len(text),
                 "preview": text[:500],
+                "text_source": text_result["text_source"],
             }
         )
         if not text:
@@ -705,7 +890,7 @@ def build_schematic_pdf_analysis(pdf_path: Path, max_pages: int) -> dict[str, An
 
     components = sorted(component_map.values(), key=lambda item: item["reference"])
     signals = sorted(signal_map.values(), key=lambda item: (-item["count"], item["name"]))
-    warnings = []
+    warnings = list(ocr_context.get("warnings", []))
 
     if extracted_chars == 0:
         warnings.append("O PDF não retornou texto extraível. Se for um scan/imagem, este pipeline não reconstrói o esquemático automaticamente.")
@@ -721,12 +906,17 @@ def build_schematic_pdf_analysis(pdf_path: Path, max_pages: int) -> dict[str, An
     else:
         readiness = "low"
 
+    document.close()
+
     return {
         "analysis_type": "schematic_pdf_preflight",
         "pdf_name": pdf_path.name,
         "page_count_total": len(reader.pages),
         "pages_processed": len(pages),
         "extracted_text_characters": extracted_chars,
+        "ocr_backend": ocr_context.get("name", "none"),
+        "ocr_attempted_pages": ocr_attempted_pages,
+        "ocr_used_pages": ocr_used_pages,
         "readiness": readiness,
         "warnings": warnings,
         "components_count": len(components),
@@ -742,6 +932,158 @@ def build_schematic_pdf_analysis(pdf_path: Path, max_pages: int) -> dict[str, An
     }
 
 
+def score_schematic_candidate_page(page_text: str) -> dict[str, Any]:
+    text = page_text.upper()
+    score = 0
+    reasons = []
+
+    component_refs = sorted({match.group(0).upper() for match in SCHEMATIC_REFERENCE_RE.finditer(text)})
+    signals = sorted({match.group(0).upper() for match in SCHEMATIC_SIGNAL_RE.finditer(text)})
+
+    weighted_keywords = {
+        "SCHEMATIC": 60,
+        "CIRCUIT DIAGRAM": 50,
+        "WIRING DIAGRAM": 45,
+        "POWER DIAGRAM": 35,
+        "PIN DIAGRAM": 20,
+        "BLOCK DIAGRAM": 15,
+        "BOARD LAYOUT": 10,
+        "DC-DC": 10,
+        "CONVERTER": 8,
+        "MCU": 8,
+        "AUDIO": 6,
+        "LCD": 6,
+        "USB": 6,
+        "MODEM": 4,
+    }
+    for keyword, weight in weighted_keywords.items():
+        if keyword in text:
+            score += weight
+            reasons.append(f"keyword:{keyword}")
+
+    if component_refs:
+        ref_score = min(30, len(component_refs) * 3)
+        score += ref_score
+        reasons.append(f"component_refs:{len(component_refs)}")
+    if signals:
+        sig_score = min(20, len(signals) * 4)
+        score += sig_score
+        reasons.append(f"signals:{len(signals)}")
+    if len(text.strip()) < 80:
+        score -= 15
+        reasons.append("low_text_density")
+
+    final_score = max(score, 0)
+    return {
+        "score": final_score,
+        "reasons": reasons,
+        "component_references": component_refs[:50],
+        "signal_candidates": signals[:50],
+    }
+
+
+def extract_schematic_candidate_pages(request: ExtractSchematicCandidatesRequest) -> dict[str, Any]:
+    root = ensure_root_exists()
+    pdf_path = safe_relative_path(request.pdf_path)
+    if pdf_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Informe um arquivo .pdf dentro do projects_root")
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail=f"PDF não encontrado: {pdf_path}")
+
+    PdfReader = import_pdf_reader()
+    fitz = import_fitz_module()
+    reader = PdfReader(str(pdf_path))
+    document = fitz.open(str(pdf_path))
+    page_count = len(reader.pages)
+    pages_to_process = min(page_count, request.max_pages)
+    ocr_context = detect_ocr_backend() if request.use_ocr_if_needed else {"name": "none", "module": None, "warnings": []}
+    ocr_attempted_pages = 0
+    ocr_used_pages = 0
+
+    page_scores = []
+    for idx in range(pages_to_process):
+        text_result = extract_page_text(
+            reader_page=reader.pages[idx],
+            document=document,
+            page_index=idx,
+            use_ocr_if_needed=request.use_ocr_if_needed,
+            ocr_languages=request.ocr_languages,
+            ocr_min_text_chars=request.ocr_min_text_chars,
+            ocr_context=ocr_context,
+            fitz_module=fitz,
+            ocr_dpi=request.export_dpi,
+        )
+        raw_text = text_result["text"]
+        if text_result["ocr_attempted"]:
+            ocr_attempted_pages += 1
+        if text_result["ocr_applied"]:
+            ocr_used_pages += 1
+        score_info = score_schematic_candidate_page(raw_text)
+        page_scores.append(
+            {
+                "page_number": idx + 1,
+                "score": score_info["score"],
+                "reasons": score_info["reasons"],
+                "component_references": score_info["component_references"],
+                "signal_candidates": score_info["signal_candidates"],
+                "preview": raw_text[:500],
+                "text_characters": len(raw_text),
+                "text_source": text_result["text_source"],
+            }
+        )
+
+    ranked_pages = sorted(page_scores, key=lambda item: (-item["score"], -item["text_characters"], item["page_number"]))
+    selected_pages = [item for item in ranked_pages[: request.top_k] if item["score"] > 0]
+
+    output_dir_relative = request.output_dir or str(pdf_path.with_suffix("")) + "_schematic_candidates"
+    exported_files = []
+    if request.export_pages and selected_pages:
+        output_dir = safe_relative_path(output_dir_relative)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        zoom = request.export_dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        for item in selected_pages:
+            page_index = item["page_number"] - 1
+            page = document.load_page(page_index)
+            pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+            image_name = f"page_{item['page_number']:03d}_score_{item['score']:03d}.png"
+            image_path = output_dir / image_name
+            pixmap.save(str(image_path))
+            item["exported_image_relative_path"] = str(image_path.relative_to(root))
+            exported_files.append(str(image_path.relative_to(root)))
+
+    document.close()
+
+    output_manifest_relative = output_dir_relative + "/candidate_pages.json"
+    output_manifest_path = safe_relative_path(output_manifest_relative)
+    output_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ocr_backend = ocr_context.get("name", "none")
+    warnings = list(ocr_context.get("warnings", []))
+    if not selected_pages:
+        warnings.append("Nenhuma página com score positivo foi encontrada. Esse manual pode exigir OCR externo ou seleção manual de páginas.")
+    elif ocr_backend == "none" and request.use_ocr_if_needed:
+        warnings.append("OCR forte não foi executado automaticamente porque nenhum backend OCR local foi detectado.")
+
+    payload = {
+        "ok": True,
+        "pdf_relative_path": str(pdf_path.relative_to(root)),
+        "page_count_total": page_count,
+        "pages_processed": pages_to_process,
+        "ocr_backend": ocr_backend,
+        "ocr_attempted_pages": ocr_attempted_pages,
+        "ocr_used_pages": ocr_used_pages,
+        "selected_pages_count": len(selected_pages),
+        "selected_pages": selected_pages,
+        "ranked_pages": ranked_pages[: min(50, len(ranked_pages))],
+        "exported_files": exported_files,
+        "warnings": warnings,
+    }
+    output_manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    payload["manifest_relative_path"] = str(output_manifest_path.relative_to(root))
+    return payload
+
+
 def analyze_schematic_pdf(request: AnalyzeSchematicPdfRequest) -> dict[str, Any]:
     root = ensure_root_exists()
     pdf_path = safe_relative_path(request.pdf_path)
@@ -750,7 +1092,13 @@ def analyze_schematic_pdf(request: AnalyzeSchematicPdfRequest) -> dict[str, Any]
     if not pdf_path.exists() or not pdf_path.is_file():
         raise HTTPException(status_code=404, detail=f"PDF não encontrado: {pdf_path}")
 
-    analysis = build_schematic_pdf_analysis(pdf_path, request.max_pages)
+    analysis = build_schematic_pdf_analysis(
+        pdf_path=pdf_path,
+        max_pages=request.max_pages,
+        use_ocr_if_needed=request.use_ocr_if_needed,
+        ocr_languages=request.ocr_languages,
+        ocr_min_text_chars=request.ocr_min_text_chars,
+    )
     response = {
         "ok": True,
         "pdf_relative_path": str(pdf_path.relative_to(root)),
@@ -775,6 +1123,9 @@ def load_schematic_analysis_payload(
     analysis_relative_path: Optional[str],
     pdf_path: Optional[str],
     max_pages: int,
+    use_ocr_if_needed: bool,
+    ocr_languages: str,
+    ocr_min_text_chars: int,
 ) -> dict[str, Any]:
     root = ensure_root_exists()
     if analysis_relative_path:
@@ -800,6 +1151,9 @@ def load_schematic_analysis_payload(
                 pdf_path=pdf_path,
                 max_pages=max_pages,
                 persist_output=False,
+                use_ocr_if_needed=use_ocr_if_needed,
+                ocr_languages=ocr_languages,
+                ocr_min_text_chars=ocr_min_text_chars,
             )
         )
         return {
@@ -1453,7 +1807,14 @@ def build_assisted_mounting_markdown(
 
 def prepare_proteus_assisted_project(request: PrepareProteusAssistedProjectRequest) -> dict[str, Any]:
     root = ensure_root_exists()
-    package = load_schematic_analysis_payload(request.analysis_relative_path, request.pdf_path, request.max_pages)
+    package = load_schematic_analysis_payload(
+        request.analysis_relative_path,
+        request.pdf_path,
+        request.max_pages,
+        request.use_ocr_if_needed,
+        request.ocr_languages,
+        request.ocr_min_text_chars,
+    )
     analysis = package["analysis"]
     source_pdf_relative_path = package.get("source_pdf_relative_path")
 
@@ -2281,6 +2642,11 @@ def pdf_analyze_schematic(request: AnalyzeSchematicPdfRequest) -> dict[str, Any]
     return analyze_schematic_pdf(request)
 
 
+@app.post("/pdf/extract-schematic-candidates")
+def pdf_extract_schematic_candidates(request: ExtractSchematicCandidatesRequest) -> dict[str, Any]:
+    return extract_schematic_candidate_pages(request)
+
+
 @app.post("/proteus/prepare-assisted-project")
 def proteus_prepare_assisted_project(request: PrepareProteusAssistedProjectRequest) -> dict[str, Any]:
     return prepare_proteus_assisted_project(request)
@@ -2294,6 +2660,7 @@ def assistant_capabilities() -> dict[str, Any]:
         "capabilities": {
             "proteus": True,
             "schematic_pdf_analysis": True,
+            "schematic_pdf_candidate_extraction": True,
             "proteus_assisted_project_packaging": True,
             "workspace_files": True,
             "workspace_search": True,
