@@ -474,7 +474,7 @@
 {/if}
 
 <style>
-	.loading {
+	:global(.loading) {
 		display: inline-block;
 		clip-path: inset(0 1ch 0 0);
 		animation: l 1s steps(3) infinite;
@@ -487,7 +487,7 @@
 		}
 	}
 
-	pre[class*='language-'] {
+	:global(pre[class*='language-']) {
 		position: relative;
 		overflow: auto;
 
@@ -497,7 +497,7 @@
 		border-radius: 10px;
 	}
 
-	pre[class*='language-'] button {
+	:global(pre[class*='language-'] button) {
 		position: absolute;
 		top: 5px;
 		right: 5px;
@@ -511,7 +511,7 @@
 		text-shadow: #c4c4c4 0 0 2px;
 	}
 
-	pre[class*='language-'] button:hover {
+	:global(pre[class*='language-'] button:hover) {
 		cursor: pointer;
 		background-color: #bcbabb;
 	}

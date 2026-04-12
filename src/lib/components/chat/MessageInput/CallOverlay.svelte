@@ -863,6 +863,7 @@
 						<button
 							type="button"
 							class="p-1.5 text-white cursor-pointer backdrop-blur-xl bg-black/10 rounded-full"
+							aria-label={$i18n.t('Close camera preview')}
 							on:click={() => {
 								stopCamera();
 							}}
@@ -895,7 +896,7 @@
 							await startVideoStream();
 						}}
 					>
-						<button class=" p-3 rounded-full bg-gray-50 dark:bg-gray-900" type="button">
+						<button class=" p-3 rounded-full bg-gray-50 dark:bg-gray-900" type="button" aria-label={$i18n.t('Switch camera')}>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								viewBox="0 0 20 20"
@@ -915,6 +916,7 @@
 						<button
 							class=" p-3 rounded-full bg-gray-50 dark:bg-gray-900"
 							type="button"
+							aria-label={$i18n.t('Start camera')}
 							on:click={async () => {
 								await navigator.mediaDevices.getUserMedia({ video: true });
 								startCamera();
@@ -968,6 +970,8 @@
 			<div>
 				<button
 					class=" p-3 rounded-full bg-gray-50 dark:bg-gray-900"
+					type="button"
+					aria-label={$i18n.t('End call')}
 					on:click={async () => {
 						await stopAudioStream();
 						await stopVideoStream();
@@ -978,7 +982,6 @@
 						showCallOverlay.set(false);
 						dispatch('close');
 					}}
-					type="button"
 				>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"

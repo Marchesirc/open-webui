@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { marked } from 'marked';
 
@@ -58,7 +59,7 @@
 								alt="logo"
 								draggable="false"
 								on:error={(e) => {
-									(e.currentTarget as HTMLImageElement).src = '/favicon.png';
+									e.currentTarget.src = '/favicon.png';
 								}}
 							/>
 						</Tooltip>

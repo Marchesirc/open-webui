@@ -54,6 +54,8 @@
 	<div class=" pt-1">
 		<button
 			class=" group-hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-300 transition"
+			type="button"
+			aria-label="Delete message"
 			on:click={() => {
 				onDelete();
 			}}

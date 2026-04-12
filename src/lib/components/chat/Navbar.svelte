@@ -46,6 +46,7 @@
 	export let initNewChat: Function;
 	export let shareEnabled: boolean = false;
 	export let scrollTop = 0;
+	$: void scrollTop;
 
 	export let chat;
 	export let history;

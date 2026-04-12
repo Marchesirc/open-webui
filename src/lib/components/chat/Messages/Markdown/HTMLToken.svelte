@@ -8,6 +8,7 @@
 
 	export let id: string;
 	export let token: Token;
+	$: void id;
 
 	let html: string | null = null;
 
@@ -77,9 +78,13 @@
 				sandbox
 				on:load={(e) => {
 					try {
-						(e.currentTarget as HTMLIFrameElement).style.height =
-							(e.currentTarget as HTMLIFrameElement).contentWindow!.document.body.scrollHeight + 20 + 'px';
-					} catch {}
+						const iframe = e.currentTarget;
+						if (iframe?.contentWindow?.document.body) {
+						iframe.style.height = iframe.contentWindow.document.body.scrollHeight + 20 + 'px';
+						}
+					} catch (e) {
+						 // Handle error silently
+					 }
 				}}
 			></iframe>
 		{:else}
@@ -119,8 +124,10 @@
 				width="100%"
 				on:load={(e) => {
 					try {
-						(e.currentTarget as HTMLIFrameElement).style.height =
-							(e.currentTarget as HTMLIFrameElement).contentWindow!.document.body.scrollHeight + 20 + 'px';
+						const iframe = e.currentTarget;
+						if (iframe?.contentWindow?.document.body) {
+						iframe.style.height = iframe.contentWindow.document.body.scrollHeight + 20 + 'px';
+						}
 					} catch {}
 				}}
 			></iframe>

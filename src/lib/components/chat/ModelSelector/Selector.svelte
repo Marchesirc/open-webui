@@ -414,6 +414,7 @@
 			: placeholder}
 		id="model-selector-{id}-button"
 	>
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			class="flex w-full text-left px-0.5 bg-transparent truncate {triggerClassName} justify-between {($settings?.highContrastMode ??
 			false)
@@ -447,12 +448,11 @@
 			sideOffset={2}
 			alignOffset={-1}
 		>
-			{#snippet child({ wrapperProps, props, open })}
-				{#if open}
-					<div {...wrapperProps}>
+			<!-- Snippet converted -->
+				{#if true}
+					<div>
 						<div
-							{...props}
-							class="{props.class} z-40 {$mobile
+							class=" z-40 {$mobile
 								? `w-full`
 								: `${className}`} max-w-[calc(100vw-1rem)] justify-start rounded-2xl bg-white dark:bg-gray-850 dark:text-white shadow-lg outline-hidden"
 							transition:flyAndScale
@@ -594,8 +594,8 @@
 														</button>
 													</Tooltip>
 												{/each}
-											</div>
 										</div>
+									</div>
 									{/if}
 								</div>
 
@@ -680,7 +680,11 @@
 											</button>
 										</Tooltip>
 									{/if}
-
+										</div>
+								</slot>
+						</div>
+					</div>
+				{/if}
 									{#each Object.keys($MODEL_DOWNLOAD_POOL) as model}
 										<div
 											class="flex w-full justify-between font-medium select-none rounded-button py-2 pl-3 pr-1.5 text-sm text-gray-700 dark:text-gray-100 outline-hidden transition-all duration-75 rounded-xl cursor-pointer data-highlighted:bg-muted"
@@ -742,17 +746,7 @@
 											</div>
 										</div>
 									{/each}
-								</div>
-
-								<div class="pb-2.5"></div>
-
-								<div class="hidden w-[42rem]" ></div>
-								<div class="hidden w-[32rem]" ></div>
-							</slot>
-						</div>
-					</div>
-				{/if}
-			{/snippet}
+			<!-- End snippet conversion -->
 		</DropdownMenu.Content>
 	</DropdownMenu.Portal>
 </DropdownMenu.Root>

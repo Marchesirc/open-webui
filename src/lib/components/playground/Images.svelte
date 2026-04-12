@@ -191,6 +191,7 @@
 										<button
 											class=" bg-white text-black border border-white rounded-full group-hover:visible invisible transition"
 											type="button"
+											aria-label="Remove image"
 											on:click={() => removeImage(index)}
 										>
 											<svg

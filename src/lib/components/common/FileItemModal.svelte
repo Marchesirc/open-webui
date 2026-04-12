@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import type { WorkBook } from 'xlsx';
 	import DOMPurify from 'dompurify';
 
@@ -280,7 +281,13 @@
 				<div>
 					<div class=" font-medium text-lg dark:text-gray-100">
 						<a
-							href="#"
+							href={isPDF || !item.url
+								? undefined
+								: item.type === 'file'
+									? item?.url?.startsWith('http')
+										? item.url
+										: `${WEBUI_API_BASE_URL}/files/${item.url}/content`
+									: item.url}
 							class="hover:underline line-clamp-1"
 							on:click|preventDefault={() => {
 								if (!isPDF && item.url) {
@@ -613,6 +620,8 @@
 										<button
 											class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"
 											disabled={pptxCurrentSlide === 0}
+											type="button"
+											aria-label={$i18n.t('Previous slide')}
 											on:click={() => (pptxCurrentSlide = Math.max(0, pptxCurrentSlide - 1))}
 										>
 											<svg
@@ -632,6 +641,8 @@
 										<button
 											class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"
 											disabled={pptxCurrentSlide === pptxSlides.length - 1}
+											type="button"
+											aria-label={$i18n.t('Next slide')}
 											on:click={() =>
 												(pptxCurrentSlide = Math.min(pptxSlides.length - 1, pptxCurrentSlide + 1))}
 										>

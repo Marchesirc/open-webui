@@ -40,14 +40,16 @@
 		role: 'pending',
 		name: '',
 		email: '',
-		password: ''
+		password: '',
+		oauth: null,
+		id: null
 	};
-
 	let userGroups: any[] | null = null;
 
 	const submitHandler = async () => {
 		const res = await updateUserById(localStorage.token, selectedUser.id, _user).catch((error) => {
 			toast.error(`${error}`);
+			return null;
 		});
 
 		if (res) {
@@ -59,7 +61,6 @@
 	const loadUserGroups = async () => {
 		if (!selectedUser?.id) return;
 		userGroups = null;
-
 		userGroups = await getUserGroupsById(localStorage.token, selectedUser.id).catch((error) => {
 			toast.error(`${error}`);
 			return null;
@@ -235,23 +236,23 @@
 </Modal>
 
 <style>
-	input::-webkit-outer-spin-button,
-	input::-webkit-inner-spin-button {
+	:global(input::-webkit-outer-spin-button),
+	:global(input::-webkit-inner-spin-button) {
 		/* display: none; <- Crashes Chrome on hover */
 		-webkit-appearance: none;
 		margin: 0; /* <-- Apparently some margin are still there even though it's hidden */
 	}
 
-	.tabs::-webkit-scrollbar {
+	:global(.tabs::-webkit-scrollbar) {
 		display: none; /* for Chrome, Safari and Opera */
 	}
 
-	.tabs {
+	:global(.tabs) {
 		-ms-overflow-style: none; /* IE and Edge */
 		scrollbar-width: none; /* Firefox */
 	}
 
-	input[type='number'] {
+	:global(input[type='number']) {
 		-moz-appearance: textfield; /* Firefox */
 		appearance: textfield;
 	}

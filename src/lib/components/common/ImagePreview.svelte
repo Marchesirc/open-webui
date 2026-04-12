@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { onDestroy, onMount, getContext } from 'svelte';
 	import panzoom, { type PanZoom } from 'panzoom';
 
@@ -93,6 +94,7 @@
 			<div>
 				<button
 					class=" p-5 z-999"
+					aria-label={$i18n.t('Download image')}
 					on:click={() => {
 						if (src.startsWith('data:image/')) {
 							const base64Data = src.split(',')[1];

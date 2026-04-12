@@ -55,6 +55,7 @@
 	export let onShowValves: Function;
 	export let onClose: Function;
 	export let closeOnOutsideClick = true;
+	$: void closeOnOutsideClick;
 
 	let show = false;
 	let tab = '';

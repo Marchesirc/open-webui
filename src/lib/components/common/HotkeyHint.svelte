@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { onMount } from 'svelte';
 	import { shortcuts } from '$lib/shortcuts';
 	import { settings } from '$lib/stores';

@@ -21,6 +21,10 @@
 	export let user = null;
 	export let selected = null;
 
+	// Keep external API props explicit even when not referenced in this component body.
+	$: void side;
+	$: void user;
+
 	let show = false;
 	let emojis = emojiShortCodes;
 	let search = '';

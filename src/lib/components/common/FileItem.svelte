@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { createEventDispatcher, getContext } from 'svelte';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -51,11 +52,12 @@
 	<FileItemModal bind:show={showModal} bind:item {edit} />
 {/if}
 
-<button
+<div
 	class="relative group p-1.5 {className} flex items-center gap-1 {colorClassName} {small
 		? 'rounded-xl p-2'
 		: 'rounded-2xl'} text-left"
-	type="button"
+	role="button"
+	tabindex="0"
 	on:click={async () => {
 		if (item?.file?.data?.content || item?.type === 'file' || item?.content || modal) {
 			showModal = !showModal;
@@ -74,6 +76,28 @@
 		}
 
 		dispatch('click');
+	}}
+	on:keydown={async (e) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			if (item?.file?.data?.content || item?.type === 'file' || item?.content || modal) {
+				showModal = !showModal;
+			} else {
+				if (url) {
+					if (type === 'file') {
+						if (url.startsWith('http')) {
+							window.open(`${url}/content`, '_blank').focus();
+						} else {
+							window.open(`${WEBUI_API_BASE_URL}/files/${url}/content`, '_blank').focus();
+						}
+					} else {
+						window.open(`${url}`, '_blank').focus();
+					}
+				}
+			}
+
+			dispatch('click');
+		}
 	}}
 >
 	{#if !small}
@@ -202,4 +226,4 @@
 			</button> -->
 		</div>
 	{/if}
-</button>
+</div>

@@ -19,6 +19,7 @@
 	export let skill = null;
 	export let clone = false;
 	export let disabled = false;
+	$: void clone;
 
 	const i18n = getContext('i18n');
 

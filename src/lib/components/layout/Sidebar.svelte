@@ -603,7 +603,7 @@
 
 <ChannelModal
 	bind:show={showCreateChannel}
-	onSubmit={async (payload: any) => {
+	onSubmit={async (payload) => {
 		let { type, name, is_private, access_grants, group_ids, user_ids } = payload ?? {};
 		name = name?.trim();
 
@@ -674,6 +674,7 @@
 <button
 	id="sidebar-new-chat-button"
 	class="hidden"
+	aria-label={$i18n.t('Start new chat')}
 	on:click={() => {
 		goto('/');
 		newChatHandler();
@@ -1447,6 +1448,7 @@
 	</div>
 
 	{#if !$mobile}
+		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 		<div
 			class="relative flex items-center justify-center group border-l border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20"
 			id="sidebar-resizer"

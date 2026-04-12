@@ -1131,6 +1131,8 @@
 						>
 							<button
 								class=" bg-white border border-gray-100 dark:border-none dark:bg-white/20 p-1.5 rounded-full pointer-events-auto"
+								type="button"
+								aria-label={$i18n.t('Scroll to bottom')}
 								on:click={() => {
 									autoScroll = true;
 									scrollToBottom();
@@ -1215,6 +1217,7 @@
 						<button
 							id="generate-message-pair-button"
 							class="hidden"
+							aria-label={$i18n.t('Generate message pair')}
 							on:click={() => createMessagePair(prompt)}
 						></button>
 
@@ -1834,6 +1837,8 @@
 											<Tooltip content={$i18n.t('Stop')}>
 												<button
 													class="bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5"
+													type="button"
+													aria-label={$i18n.t('Stop response')}
 													on:click={() => {
 														stopResponse();
 													}}

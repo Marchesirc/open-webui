@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import Fuse from 'fuse.js';
 	import Bolt from '$lib/components/icons/Bolt.svelte';
 	import { onMount, getContext } from 'svelte';

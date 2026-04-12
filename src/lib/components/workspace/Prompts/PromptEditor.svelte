@@ -35,6 +35,7 @@
 	export let prompt = null;
 	export let clone = false;
 	export let disabled = false;
+	$: void clone;
 
 	const i18n = getContext('i18n');
 
@@ -461,7 +462,59 @@
 			<!-- Desktop History Sidebar -->
 			<div class="hidden md:flex md:flex-col w-72 shrink-0 overflow-hidden">
 				<div class="flex-1 overflow-y-auto">
-					{@render historySection()}
+					<div class="flex flex-col h-full">
+						<div class="flex items-center justify-between mb-2 shrink-0">
+							<div class="text-gray-500 text-xs">{$i18n.t('History')}</div>
+						</div>
+
+						{#if history.length > 0}
+							<div class="space-y-0 flex-1 overflow-y-auto" on:scroll={handleHistoryScroll}>
+								{#each history as entry, index}
+									<div class="flex">
+										<button
+											class="flex-1 text-left px-3.5 py-2 mb-1 rounded-2xl transition group
+												{selectedHistoryEntry?.id === entry.id
+												? 'bg-gray-100/50 dark:bg-gray-850/50'
+												: 'hover:bg-gray-100/50 dark:hover:bg-gray-850/50'}"
+											on:click={() => (selectedHistoryEntry = entry)}
+										>
+											<div class="flex items-center gap-2 mb-1">
+												<div class="text-xs text-gray-900 dark:text-white truncate">
+													{entry.commit_message || $i18n.t('Update')}
+												</div>
+												{#if entry.id === prompt?.version_id}
+													<Badge type="success" content={$i18n.t('Live')} />
+												{/if}
+											</div>
+											<div class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+												{#if entry.user}
+													<img
+														src={`/api/v1/users/${entry.user.id}/profile/image`}
+														alt={entry.user.name}
+														class="size-3 rounded-full mr-0.5"
+														on:error={(e) => (e.target.src = '/user.png')}
+													/>
+													<span class="truncate">{entry.user.name}</span>
+													<span>•</span>
+												{/if}
+												<span class="shrink-0">{renderDate(entry.created_at)}</span>
+											</div>
+										</button>
+									</div>
+								{/each}
+
+								{#if historyLoading}
+									<div class="flex justify-center py-2">
+										<Spinner className="size-3" />
+									</div>
+								{/if}
+							</div>
+						{:else if !historyLoading}
+							<div class="text-xs text-gray-400 text-center py-6 italic">
+								{$i18n.t('No history available')}
+							</div>
+						{/if}
+					</div>
 				</div>
 			</div>
 
@@ -621,62 +674,3 @@
 	</div>
 {/if}
 
-{#snippet historySection()}
-	<div class="flex flex-col h-full">
-		<div class="flex items-center justify-between mb-2 shrink-0">
-			<div class="text-gray-500 text-xs">{$i18n.t('History')}</div>
-		</div>
-
-		{#if history.length > 0}
-			<div class="space-y-0 flex-1 overflow-y-auto" on:scroll={handleHistoryScroll}>
-				{#each history as entry, index}
-					<div class="flex">
-						<!-- Content -->
-						<button
-							class="flex-1 text-left px-3.5 py-2 mb-1 rounded-2xl transition group
-								{selectedHistoryEntry?.id === entry.id
-								? 'bg-gray-100/50 dark:bg-gray-850/50'
-								: 'hover:bg-gray-100/50 dark:hover:bg-gray-850/50'}"
-							on:click={() => (selectedHistoryEntry = entry)}
-						>
-							<!-- Commit Message -->
-							<div class="flex items-center gap-2 mb-1">
-								<div class="text-xs text-gray-900 dark:text-white truncate">
-									{entry.commit_message || $i18n.t('Update')}
-								</div>
-								{#if entry.id === prompt?.version_id}
-									<Badge type="success" content={$i18n.t('Live')} />
-								{/if}
-							</div>
-
-							<!-- User + Time -->
-							<div class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-								{#if entry.user}
-									<img
-										src={`/api/v1/users/${entry.user.id}/profile/image`}
-										alt={entry.user.name}
-										class="size-3 rounded-full mr-0.5"
-										on:error={(e) => (e.target.src = '/user.png')}
-									/>
-									<span class="truncate">{entry.user.name}</span>
-									<span>•</span>
-								{/if}
-								<span class="shrink-0">{renderDate(entry.created_at)}</span>
-							</div>
-						</button>
-					</div>
-				{/each}
-
-				{#if historyLoading}
-					<div class="flex justify-center py-2">
-						<Spinner className="size-3" />
-					</div>
-				{/if}
-			</div>
-		{:else if !historyLoading}
-			<div class="text-xs text-gray-400 text-center py-6 italic">
-				{$i18n.t('No history available')}
-			</div>
-		{/if}
-	</div>
-{/snippet}

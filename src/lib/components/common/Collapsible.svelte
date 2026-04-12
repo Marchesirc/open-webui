@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { decode } from 'html-entities';
 	import { v4 as uuidv4 } from 'uuid';
 

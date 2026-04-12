@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 

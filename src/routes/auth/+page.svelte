@@ -273,7 +273,7 @@
 										{/if}
 									</div>
 
-									{#if (($config as any)?.onboarding ?? false)}
+										{#if $config?.onboarding ?? false}
 										<div class="mt-1 text-xs font-medium text-gray-600 dark:text-gray-500">
 											ⓘ {$WEBUI_NAME}
 											{$i18n.t(
@@ -391,12 +391,12 @@
 											>
 												{mode === 'signin'
 													? $i18n.t('Sign in')
-													: ((($config as any)?.onboarding ?? false) as boolean)
+													: ($config?.onboarding ?? false)
 														? $i18n.t('Create Admin Account')
 														: $i18n.t('Create Account')}
 											</button>
 
-											{#if features?.enable_signup && !(($config as any)?.onboarding ?? false)}
+											{#if features?.enable_signup && !($config?.onboarding ?? false)}
 												<div class=" mt-4 text-sm text-center">
 													{mode === 'signin'
 														? $i18n.t("Don't have an account?")

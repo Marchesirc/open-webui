@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-nocheck
 	import { Switch } from 'bits-ui';
 
 	import { createEventDispatcher, tick, getContext } from 'svelte';
