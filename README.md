@@ -98,6 +98,27 @@ Para manuais grandes ou service guides, use antes:
 POST /pdf/extract-schematic-candidates
 ```
 
+Para gerar subconjuntos focados com perfis oficiais (sem scripts temporarios), use:
+
+```text
+POST /pdf/build-focused-subset
+```
+
+Perfis oficiais atuais:
+
+- `acer_pass3_pure_schematics`
+- `acer_pass4_signal_dense`
+
+Exemplo de payload para perfil pass4:
+
+```json
+{
+  "source_pdf_path": "Acer_AcerNote_970/acer_acernote_970_service_guide.pdf",
+  "profile_name": "acer_pass4_signal_dense",
+  "candidate_manifest_path": "Acer_AcerNote_970/acer_acernote_970_service_guide_schematic_candidates_pass2/candidate_pages.json"
+}
+```
+
 Esse endpoint faz triagem de páginas com maior chance de conter diagrama/esquemático, exporta as melhores páginas como PNG em alta resolução e gera um manifesto `candidate_pages.json` para revisão dirigida.
 
 Se houver Tesseract OCR instalado localmente, o bridge agora tenta OCR automaticamente nas páginas com pouco texto extraível.
@@ -129,6 +150,7 @@ Observações sobre OCR:
 - o bridge detecta automaticamente `tesseract.exe` em caminhos comuns do Windows
 - para PDFs mistos em inglês e português, prefira `ocr_languages: "eng+por"`
 - sem o binário do Tesseract, o fluxo continua funcionando em modo degradado
+- para idioma portugues sem permissao de admin, use o script `instalar_idioma_ocr_por_usuario.ps1` (instala `por.traineddata` em `%LOCALAPPDATA%\Tesseract-OCR\tessdata` e configura `TESSDATA_PREFIX` no usuario)
 
 Exemplo de payload:
 
@@ -197,6 +219,7 @@ Arquivos gerados no pacote assistido:
 - `functional_blocks.csv`
 - `block_mount_checklist.json`
 - `block_mount_checklist.csv`
+- `block_mount_checklist.csv` com colunas de redes prioritarias (`priority_nets`) e score de confianca por rede (`priority_nets_confidence`)
 - `MONTAGEM_ASSISTIDA_PROTEUS.md`
 - `assisted_project_manifest.json`
 
@@ -210,6 +233,21 @@ Uso recomendado:
 - use `confidence` e `confidence_score` para priorizar primeiro os componentes e redes com melhor evidência
 - monte o projeto no ISIS com base no BOM CSV e nos sinais detectados
 - depois use o bridge atual para abrir projeto, importar firmware e simular
+
+## Operacao oficial pass4 (sem script temporario)
+
+Fluxo recomendado para service guide Acer:
+
+1. `POST /pdf/extract-schematic-candidates`
+2. `POST /pdf/build-focused-subset` com `profile_name: "acer_pass4_signal_dense"`
+3. `POST /pdf/analyze-schematic` no PDF focado gerado
+4. `POST /proteus/prepare-assisted-project`
+
+Scripts auxiliares disponiveis:
+
+- `instalar_idioma_ocr_por_usuario.ps1`: instala idioma OCR `por` sem admin no perfil do usuario
+- `executar_pipeline_pass4_oficial.ps1`: executa pipeline pass4 completo via endpoints do bridge
+- `gerar_relatorio_comparativo_passes.ps1`: cria comparativo pass2/pass3/pass4 em JSON e Markdown
 
 Blocos funcionais atualmente inferidos com regras especificas:
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import glob
 import json
+import os
 import re
 import shutil
 import socket
@@ -351,6 +352,15 @@ class ExtractSchematicCandidatesRequest(BaseModel):
     ocr_min_text_chars: int = Field(default=80, ge=0, le=2000)
 
 
+class BuildFocusedSubsetRequest(BaseModel):
+    source_pdf_path: str = Field(..., description="PDF original dentro do projects_root")
+    profile_name: str = Field(default="acer_pass4_signal_dense", description="Perfil oficial de foco para service guides")
+    candidate_manifest_path: Optional[str] = Field(default=None, description="Manifesto candidate_pages.json gerado por /pdf/extract-schematic-candidates")
+    output_pdf_path: Optional[str] = Field(default=None, description="Caminho relativo de saida para PDF focado")
+    output_selection_json_path: Optional[str] = Field(default=None, description="Caminho relativo de saida para JSON de selecao")
+    min_score_override: Optional[int] = Field(default=None, ge=0, le=100)
+
+
 class PrepareProteusAssistedProjectRequest(BaseModel):
     project_folder: str = Field(..., description="Pasta relativa dentro do projects_root para gerar o pacote assistido")
     analysis_relative_path: Optional[str] = Field(default=None, description="JSON gerado por /pdf/analyze-schematic")
@@ -690,6 +700,12 @@ def detect_ocr_backend() -> dict[str, Any]:
             ],
         }
 
+    user_tessdata_dir = Path.home() / "AppData" / "Local" / "Tesseract-OCR" / "tessdata"
+    user_tessdata_prefix = user_tessdata_dir.parent if user_tessdata_dir.exists() else None
+    if user_tessdata_prefix:
+        # Allow non-admin language packs in the user profile.
+        os.environ["TESSDATA_PREFIX"] = str(user_tessdata_prefix)
+
     try:
         pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
         version = str(pytesseract.get_tesseract_version())
@@ -700,11 +716,17 @@ def detect_ocr_backend() -> dict[str, Any]:
             "warnings": [f"Falha ao inicializar OCR Tesseract em '{tesseract_cmd}': {exc}"],
         }
 
+    available_languages = []
+    if user_tessdata_dir.exists():
+        available_languages.extend(path.stem for path in user_tessdata_dir.glob("*.traineddata"))
+
     return {
         "name": "tesseract",
         "module": pytesseract,
         "command": tesseract_cmd,
         "version": version,
+        "tessdata_dir": str(user_tessdata_dir) if user_tessdata_dir.exists() else None,
+        "available_languages": sorted(set(available_languages)),
         "warnings": [],
     }
 
@@ -716,6 +738,7 @@ def run_ocr_on_pdf_page(
     pytesseract_module: Any,
     languages: str,
     dpi: int,
+    tessdata_dir: Optional[str],
 ) -> str:
     page = document.load_page(page_index)
     zoom = dpi / 72.0
@@ -725,7 +748,22 @@ def run_ocr_on_pdf_page(
         temp_path = Path(temp_file.name)
     try:
         pixmap.save(str(temp_path))
-        return (pytesseract_module.image_to_string(str(temp_path), lang=languages) or "").strip()
+        attempts: list[tuple[str, Optional[str]]] = [(languages, tessdata_dir), (languages, None)]
+        if "+" in languages:
+            attempts.append(("eng", tessdata_dir))
+            attempts.append(("eng", None))
+
+        for lang_attempt, tessdata_attempt in attempts:
+            try:
+                config = None
+                if tessdata_attempt:
+                    config = f'--tessdata-dir "{tessdata_attempt}"'
+                result = pytesseract_module.image_to_string(str(temp_path), lang=lang_attempt, config=config) or ""
+                if result.strip():
+                    return result.strip()
+            except Exception:
+                continue
+        return ""
     finally:
         try:
             temp_path.unlink(missing_ok=True)
@@ -766,6 +804,7 @@ def extract_page_text(
         pytesseract_module=ocr_context["module"],
         languages=ocr_languages,
         dpi=ocr_dpi,
+        tessdata_dir=ocr_context.get("tessdata_dir"),
     )
     if len(ocr_text) > len(raw_text):
         result["text"] = ocr_text
@@ -915,6 +954,7 @@ def build_schematic_pdf_analysis(
         "pages_processed": len(pages),
         "extracted_text_characters": extracted_chars,
         "ocr_backend": ocr_context.get("name", "none"),
+        "ocr_available_languages": ocr_context.get("available_languages", []),
         "ocr_attempted_pages": ocr_attempted_pages,
         "ocr_used_pages": ocr_used_pages,
         "readiness": readiness,
@@ -1071,6 +1111,7 @@ def extract_schematic_candidate_pages(request: ExtractSchematicCandidatesRequest
         "page_count_total": page_count,
         "pages_processed": pages_to_process,
         "ocr_backend": ocr_backend,
+        "ocr_available_languages": ocr_context.get("available_languages", []),
         "ocr_attempted_pages": ocr_attempted_pages,
         "ocr_used_pages": ocr_used_pages,
         "selected_pages_count": len(selected_pages),
@@ -1525,6 +1566,28 @@ def block_priority(block_name: str) -> int:
     return order.get(block_name, 999)
 
 
+def net_tokens_for_block(block_name: str) -> set[str]:
+    mapping = {
+        "power_supply": {"GND", "AGND", "DGND", "PGND", "VCC", "VDD", "VSS", "VIN", "VBAT", "3V3", "5V", "12V", "24V"},
+        "power_regulation": {"GND", "VCC", "VDD", "VIN", "3V3", "5V", "12V"},
+        "mcu_control": {"RESET", "RST", "CLK", "GPIO", "CS", "INT"},
+        "clock_timing": {"CLK", "OSC"},
+        "display_i2c": {"SCL", "SDA", "VCC", "GND"},
+        "display_spi": {"MOSI", "MISO", "SCK", "CS", "CLK"},
+        "display_ui": {"LCD", "BL", "COM", "SEG"},
+        "sensor_analog": {"ADC", "AOUT", "AIN", "GND", "VCC"},
+        "sensor_digital": {"SCL", "SDA", "MOSI", "MISO", "SCK", "CS", "INT"},
+        "sensor_frontend": {"ADC", "INT", "SCL", "SDA"},
+        "uart_interface": {"TX", "RX"},
+        "can_interface": {"CAN", "CANH", "CANL"},
+        "can_transceiver": {"CAN", "CANH", "CANL", "TX", "RX"},
+        "rs485_interface": {"RS485", "A", "B", "DE", "RE", "DI", "RO"},
+        "usb_interface": {"USB", "VBUS", "D+", "D-"},
+        "interface_comms": {"TX", "RX", "SCL", "SDA", "MOSI", "MISO", "SCK", "CS", "INT"},
+    }
+    return mapping.get(block_name, set())
+
+
 def build_functional_blocks_summary(component_nodes: list[dict[str, Any]]) -> dict[str, Any]:
     block_map: dict[str, dict[str, Any]] = {}
     for component in component_nodes:
@@ -1594,7 +1657,7 @@ def build_functional_blocks_summary(component_nodes: list[dict[str, Any]]) -> di
     }
 
 
-def build_block_checklist(functional_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+def build_block_checklist(functional_blocks: list[dict[str, Any]], net_rows: list[dict[str, str]]) -> dict[str, Any]:
     checklist_rows = []
     checklist_items = []
     step_number = 1
@@ -1655,10 +1718,31 @@ def build_block_checklist(functional_blocks: list[dict[str, Any]]) -> dict[str, 
         ),
     )
 
+    parsed_nets = []
+    for row in net_rows:
+        parsed_nets.append(
+            {
+                "name": str(row.get("net", "")).upper(),
+                "confidence": str(row.get("confidence", "low")),
+                "confidence_score": int(row.get("confidence_score", 0)),
+                "members": str(row.get("members", "")),
+            }
+        )
+
     for block in ordered_blocks:
         block_name = str(block.get("block", "misc_control"))
         references = ", ".join(block.get("references", [])[:20])
         priority = int(block.get("priority", block_priority(block_name)))
+        block_tokens = net_tokens_for_block(block_name)
+        matched_nets = []
+        for net in parsed_nets:
+            name = net["name"]
+            if name in block_tokens or any(token in name for token in block_tokens):
+                matched_nets.append(net)
+        matched_nets = sorted(matched_nets, key=lambda item: (-item["confidence_score"], item["name"]))[:3]
+        top_nets = ", ".join(net["name"] for net in matched_nets)
+        top_nets_confidence = ", ".join(f"{net['name']}({net['confidence_score']})" for net in matched_nets)
+
         item = {
             "order": step_number,
             "priority": priority,
@@ -1668,6 +1752,8 @@ def build_block_checklist(functional_blocks: list[dict[str, Any]]) -> dict[str, 
             "confidence_label": block.get("confidence_label", "low"),
             "mount_action": action_map.get(block_name, "Montar bloco e revisar componentes associados"),
             "verification": verification_map.get(block_name, "Revisar ligacoes e coerencia do bloco no ISIS"),
+            "priority_nets": top_nets,
+            "priority_nets_confidence": top_nets_confidence,
             "references": block.get("references", []),
             "status": "pending",
         }
@@ -1682,6 +1768,8 @@ def build_block_checklist(functional_blocks: list[dict[str, Any]]) -> dict[str, 
                 "confidence_label": str(block.get("confidence_label", "low")),
                 "mount_action": item["mount_action"],
                 "verification": item["verification"],
+                "priority_nets": top_nets,
+                "priority_nets_confidence": top_nets_confidence,
                 "references": references,
                 "status": "pending",
             }
@@ -1846,7 +1934,7 @@ def prepare_proteus_assisted_project(request: PrepareProteusAssistedProjectReque
     signals = analysis.get("signal_candidates", [])
     draft_netlist = build_draft_netlist(analysis)
     functional_blocks = build_functional_blocks_summary(draft_netlist["components"])
-    block_checklist = build_block_checklist(functional_blocks["blocks"])
+    block_checklist = build_block_checklist(functional_blocks["blocks"], draft_netlist["net_rows"])
 
     analysis_json_path.write_text(json.dumps(analysis, indent=2, ensure_ascii=False), encoding="utf-8")
     components_json_path.write_text(json.dumps(components, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1929,6 +2017,127 @@ def prepare_proteus_assisted_project(request: PrepareProteusAssistedProjectReque
         },
         "copied_pdf_relative_path": copied_pdf_relative_path,
         "next_step": "Abra MONTAGEM_ASSISTIDA_PROTEUS.md e monte o projeto ISIS manualmente usando o BOM e os sinais detectados.",
+    }
+
+
+def resolve_candidate_manifest_path(source_pdf_path: Path, explicit_manifest_path: Optional[str]) -> Path:
+    if explicit_manifest_path:
+        manifest_path = safe_relative_path(explicit_manifest_path)
+        if not manifest_path.exists() or not manifest_path.is_file():
+            raise HTTPException(status_code=404, detail=f"Manifesto de candidatos nao encontrado: {manifest_path}")
+        return manifest_path
+
+    root = ensure_root_exists()
+    default_manifest_relative = str(source_pdf_path.relative_to(root).with_suffix("")) + "_schematic_candidates/candidate_pages.json"
+    manifest_path = safe_relative_path(default_manifest_relative)
+    if not manifest_path.exists() or not manifest_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Manifesto de candidatos nao encontrado automaticamente. Execute /pdf/extract-schematic-candidates "
+                "ou informe candidate_manifest_path."
+            ),
+        )
+    return manifest_path
+
+
+def should_keep_focused_page(profile_name: str, page: dict[str, Any], min_score_override: Optional[int]) -> bool:
+    page_number = int(page.get("page_number", 0))
+    score = int(page.get("score", 0))
+    refs = len(page.get("component_references", []))
+    signals = len(page.get("signal_candidates", []))
+    preview = str(page.get("preview", "")).upper()
+    min_score = min_score_override if min_score_override is not None else 0
+
+    if profile_name == "acer_pass3_pure_schematics":
+        hard_schematic = "SHEET" in preview and "DATE:" in preview
+        return (
+            page_number in {211, 246}
+            or (score >= max(50, min_score) and hard_schematic)
+            or (score >= max(46, min_score) and refs >= 18 and signals >= 2)
+            or (score >= max(60, min_score) and refs >= 18)
+        )
+
+    if profile_name == "acer_pass4_signal_dense":
+        has_bus_keywords = any(token in preview for token in ("DATA", "CLOCK", "ADDR", "BUS", "D[", "A["))
+        strong_interconnect = signals >= 5 or has_bus_keywords
+        component_dense = refs >= 25
+        return (
+            ("SHEET" in preview and "DATE:" in preview and strong_interconnect and component_dense and score >= max(48, min_score))
+            or page_number in {226, 249, 251, 254}
+        )
+
+    raise HTTPException(status_code=400, detail=f"Perfil de foco nao suportado: {profile_name}")
+
+
+def build_focused_subset_from_candidates(request: BuildFocusedSubsetRequest) -> dict[str, Any]:
+    root = ensure_root_exists()
+    fitz = import_fitz_module()
+    source_pdf_path = safe_relative_path(request.source_pdf_path)
+    if source_pdf_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="source_pdf_path deve apontar para um arquivo .pdf")
+    if not source_pdf_path.exists() or not source_pdf_path.is_file():
+        raise HTTPException(status_code=404, detail=f"PDF nao encontrado: {source_pdf_path}")
+
+    manifest_path = resolve_candidate_manifest_path(source_pdf_path, request.candidate_manifest_path)
+    try:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Manifesto de candidatos invalido: {manifest_path}") from exc
+
+    source_pages = manifest_payload.get("selected_pages") or manifest_payload.get("ranked_pages") or []
+    if not isinstance(source_pages, list) or not source_pages:
+        raise HTTPException(status_code=400, detail="Manifesto nao contem paginas candidatas para processar")
+
+    chosen_pages = []
+    for page in source_pages:
+        if not isinstance(page, dict):
+            continue
+        if should_keep_focused_page(request.profile_name, page, request.min_score_override):
+            chosen_pages.append(page)
+
+    if not chosen_pages:
+        raise HTTPException(status_code=400, detail="Nenhuma pagina foi selecionada pelo perfil de foco informado")
+
+    chosen_pages = sorted(chosen_pages, key=lambda item: int(item.get("page_number", 0)))
+    chosen_pages = [page for i, page in enumerate(chosen_pages) if i == 0 or int(page.get("page_number", 0)) != int(chosen_pages[i - 1].get("page_number", 0))]
+    selected_page_numbers = [int(page.get("page_number", 0)) for page in chosen_pages]
+
+    default_pdf_relative = str(source_pdf_path.relative_to(root).with_suffix("")) + f"_{request.profile_name}.pdf"
+    output_pdf_path = safe_relative_path(request.output_pdf_path or default_pdf_relative)
+    output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source_document = fitz.open(str(source_pdf_path))
+    focused_document = fitz.open()
+    for page_number in selected_page_numbers:
+        focused_document.insert_pdf(source_document, from_page=page_number - 1, to_page=page_number - 1)
+    focused_document.save(str(output_pdf_path))
+    focused_document.close()
+    source_document.close()
+
+    default_selection_relative = str(source_pdf_path.relative_to(root).with_suffix("")) + f"_{request.profile_name}.selection.json"
+    output_selection_path = safe_relative_path(request.output_selection_json_path or default_selection_relative)
+    output_selection_path.parent.mkdir(parents=True, exist_ok=True)
+
+    selection_payload = {
+        "profile_name": request.profile_name,
+        "source_pdf_path": str(source_pdf_path.relative_to(root)),
+        "candidate_manifest_path": str(manifest_path.relative_to(root)),
+        "output_pdf_path": str(output_pdf_path.relative_to(root)),
+        "selected_count": len(selected_page_numbers),
+        "selected_pages": selected_page_numbers,
+        "selected_page_details": chosen_pages,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    output_selection_path.write_text(json.dumps(selection_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return {
+        "ok": True,
+        "profile_name": request.profile_name,
+        "selected_count": len(selected_page_numbers),
+        "selected_pages": selected_page_numbers,
+        "output_pdf_path": str(output_pdf_path.relative_to(root)),
+        "output_selection_json_path": str(output_selection_path.relative_to(root)),
     }
 
 
@@ -2647,6 +2856,11 @@ def pdf_extract_schematic_candidates(request: ExtractSchematicCandidatesRequest)
     return extract_schematic_candidate_pages(request)
 
 
+@app.post("/pdf/build-focused-subset")
+def pdf_build_focused_subset(request: BuildFocusedSubsetRequest) -> dict[str, Any]:
+    return build_focused_subset_from_candidates(request)
+
+
 @app.post("/proteus/prepare-assisted-project")
 def proteus_prepare_assisted_project(request: PrepareProteusAssistedProjectRequest) -> dict[str, Any]:
     return prepare_proteus_assisted_project(request)
@@ -2661,6 +2875,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "proteus": True,
             "schematic_pdf_analysis": True,
             "schematic_pdf_candidate_extraction": True,
+            "schematic_pdf_focus_profiles": ["acer_pass3_pure_schematics", "acer_pass4_signal_dense"],
             "proteus_assisted_project_packaging": True,
             "workspace_files": True,
             "workspace_search": True,
