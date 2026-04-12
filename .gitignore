@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.tmp
+*.bak
+proteus_backups/
+RELATORIO_OpenWebUI_Stack.md
+_Logs/
+*.user

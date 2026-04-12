@@ -1,0 +1,56 @@
+{
+  "TOOL_SERVER_CONNECTIONS": [
+    {
+      "name": "Professional Workspace & Proteus Bridge",
+      "description": "Ferramenta profissional para Open WebUI com automação do Proteus, busca no workspace, execução controlada de PowerShell e apoio de busca web.",
+      "info": {
+        "id": "proteus-bridge",
+        "name": "Professional Workspace & Proteus Bridge",
+        "description": "Ferramenta profissional para Open WebUI com automação do Proteus, busca no workspace, execução controlada de PowerShell e apoio de busca web."
+      },
+      "url": "http://127.0.0.1:8001",
+      "path": "/openapi.json",
+      "type": "openapi",
+      "auth_type": "none",
+      "key": "",
+      "headers": {},
+      "config": {
+        "enable": true,
+        "access_grants": [
+          {
+            "principal_type": "user",
+            "principal_id": "4adba7c9-890c-43e9-926e-eccb4f933c73",
+            "permission": "read"
+          }
+        ],
+        "function_name_filter_list": []
+      }
+    },
+    {
+      "name": "Local PC MCP",
+      "description": "Servidor MCP local deste PC para diagnóstico do Windows, serviços do Open WebUI e leitura controlada do workspace.",
+      "info": {
+        "id": "local-pc-mcp",
+        "name": "Local PC MCP",
+        "description": "Servidor MCP local deste PC para diagnóstico do Windows, serviços do Open WebUI e leitura controlada do workspace."
+      },
+      "url": "http://127.0.0.1:8765",
+      "path": "/mcp",
+      "type": "mcp",
+      "auth_type": "none",
+      "key": "",
+      "headers": {},
+      "config": {
+        "enable": true,
+        "access_grants": [
+          {
+            "principal_type": "user",
+            "principal_id": "4adba7c9-890c-43e9-926e-eccb4f933c73",
+            "permission": "read"
+          }
+        ],
+        "function_name_filter_list": []
+      }
+    }
+  ]
+}

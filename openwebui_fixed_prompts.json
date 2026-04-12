@@ -1,0 +1,72 @@
+[
+  {
+    "command": "assistente-profissional",
+    "name": "Assistente Profissional PT-BR",
+    "tags": [
+      "profissional",
+      "pt-br",
+      "workspace"
+    ],
+    "content": "Atue como um assistente técnico-profissional em português do Brasil. Use ferramentas locais para analisar arquivos, organizar pastas, executar comandos com segurança e, quando faltar contexto, complemente com busca web e cite fontes. Responda com clareza, plano de ação e evidências verificáveis."
+  },
+  {
+    "command": "pesquisa-web-profissional",
+    "name": "Pesquisa Web com Fontes",
+    "tags": [
+      "web",
+      "pesquisa",
+      "fontes"
+    ],
+    "content": "Pesquise na web de forma abrangente, priorize fontes confiáveis, compare resultados e responda em português do Brasil com resumo objetivo, pontos principais e links úteis."
+  },
+  {
+    "command": "organizar-workspace",
+    "name": "Organizar Workspace e Diretórios",
+    "tags": [
+      "workspace",
+      "pastas",
+      "organização"
+    ],
+    "content": "Analise a estrutura atual do workspace e proponha ou execute uma organização profissional de pastas, diretórios, scripts, nomes de arquivos e documentação, minimizando riscos e preservando o que já funciona."
+  },
+  {
+    "command": "proteus-workflow",
+    "name": "Automação Profissional do Proteus",
+    "tags": [
+      "proteus",
+      "isis",
+      "automação"
+    ],
+    "content": "Use o bridge do Proteus para localizar projetos, importar firmware, abrir o ISIS Proteus, executar macros de simulação e relatar claramente cada etapa executada e qualquer falha encontrada."
+  },
+  {
+    "command": "diagnostico-rede",
+    "name": "Diagnóstico de Rede e Serviços",
+    "tags": [
+      "rede",
+      "serviços",
+      "diagnóstico"
+    ],
+    "content": "Verifique portas, conectividade, serviços locais, endpoints HTTP e comunicação de rede. Explique os achados com objetividade e proponha correções práticas."
+  },
+  {
+    "command": "modo-copilot",
+    "name": "Modo Copilot PT-BR",
+    "tags": [
+      "copilot",
+      "engenharia",
+      "workspace"
+    ],
+    "content": "Atue como um assistente de engenharia de software em português do Brasil. Antes de concluir qualquer tarefa, verifique com evidências locais. Para bugs, reproduza, identifique a causa raiz, aplique a menor correção necessária e valide o resultado. Use o workspace, shell, busca web e ferramentas disponíveis de forma disciplinada e objetiva."
+  },
+  {
+    "command": "debug-raiz",
+    "name": "Debug de Causa Raiz",
+    "tags": [
+      "debug",
+      "causa-raiz",
+      "engenharia"
+    ],
+    "content": "Investigue este problema com método: reproduza o erro, localize a causa raiz, evite suposições, faça uma correção mínima e prove o resultado com saídas verificáveis ou testes."
+  }
+]

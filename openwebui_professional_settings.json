@@ -1,0 +1,232 @@
+{
+  "tool_server": {
+    "connections": [
+      {
+        "name": "Professional Workspace & Proteus Bridge",
+        "description": "Ferramenta profissional para Open WebUI com automação do Proteus, busca no workspace, execução controlada de PowerShell e apoio de busca web.",
+        "info": {
+          "id": "proteus-bridge",
+          "name": "Professional Workspace & Proteus Bridge",
+          "description": "Ferramenta profissional para Open WebUI com automação do Proteus, busca no workspace, execução controlada de PowerShell e apoio de busca web."
+        },
+        "url": "http://127.0.0.1:8001",
+        "path": "/openapi.json",
+        "type": "openapi",
+        "auth_type": "none",
+        "key": "",
+        "headers": {},
+        "config": {
+          "enable": true,
+          "access_grants": [
+            {
+              "principal_type": "user",
+              "principal_id": "4adba7c9-890c-43e9-926e-eccb4f933c73",
+              "permission": "read"
+            }
+          ],
+          "function_name_filter_list": []
+        }
+      },
+      {
+        "name": "Local PC MCP",
+        "description": "Servidor MCP local deste PC para diagnóstico do Windows, serviços do Open WebUI e leitura controlada do workspace.",
+        "info": {
+          "id": "local-pc-mcp",
+          "name": "Local PC MCP",
+          "description": "Servidor MCP local deste PC para diagnóstico do Windows, serviços do Open WebUI e leitura controlada do workspace."
+        },
+        "url": "http://127.0.0.1:8765",
+        "path": "/mcp",
+        "type": "mcp",
+        "auth_type": "none",
+        "key": "",
+        "headers": {},
+        "config": {
+          "enable": true,
+          "access_grants": [
+            {
+              "principal_type": "user",
+              "principal_id": "4adba7c9-890c-43e9-926e-eccb4f933c73",
+              "permission": "read"
+            }
+          ],
+          "function_name_filter_list": []
+        }
+      }
+    ]
+  },
+  "default_prompt_suggestions": [
+    {
+      "title": [
+        "Modo engenharia",
+        "objetivo e verificável"
+      ],
+      "content": "A partir de agora, responda em português do Brasil como um assistente técnico-profissional. Verifique fatos com evidências locais sempre que possível, seja direto, evite rodeios e finalize com próximos passos objetivos."
+    },
+    {
+      "title": [
+        "Analisar projeto",
+        "arquitetura e prioridades"
+      ],
+      "content": "Analise este projeto agora e entregue em formato objetivo: 1) objetivo do sistema, 2) arquitetura resumida, 3) riscos ou falhas prováveis, 4) plano de ação com prioridades alta, média e baixa."
+    },
+    {
+      "title": [
+        "Pesquisar na web",
+        "fontes e conclusão prática"
+      ],
+      "content": "Pesquise este tema em fontes confiáveis, compare os resultados, cite os links principais e finalize com uma recomendação prática em português do Brasil."
+    },
+    {
+      "title": [
+        "Organizar workspace",
+        "sem quebrar o que funciona"
+      ],
+      "content": "Mapeie este workspace, proponha uma estrutura profissional de pastas, nomes e scripts, e destaque mudanças seguras que melhoram a organização sem quebrar o que já funciona."
+    },
+    {
+      "title": [
+        "Automatizar Proteus",
+        "abrir, importar e simular"
+      ],
+      "content": "Use o Proteus Bridge para localizar o projeto, importar o firmware mais recente, abrir o Proteus e iniciar a simulação. Relate cada etapa executada e qualquer falha encontrada."
+    },
+    {
+      "title": [
+        "Diagnosticar serviços",
+        "portas e endpoints locais"
+      ],
+      "content": "Verifique agora as portas, os serviços e os endpoints locais deste ambiente. Aponte o que está ativo, o que falhou, a causa raiz e a correção exata."
+    },
+    {
+      "title": [
+        "Depurar erro",
+        "causa raiz com prova"
+      ],
+      "content": "Investigue este erro com método de engenharia: reproduza o problema, encontre a causa raiz, aplique a menor correção segura e prove o resultado com teste ou saída verificável."
+    }
+  ],
+  "default_models": "qwen2.5:14b",
+  "ui": {
+    "prompt_suggestions": [
+      {
+        "title": [
+          "Modo engenharia",
+          "objetivo e verificável"
+        ],
+        "content": "A partir de agora, responda em português do Brasil como um assistente técnico-profissional. Verifique fatos com evidências locais sempre que possível, seja direto, evite rodeios e finalize com próximos passos objetivos."
+      },
+      {
+        "title": [
+          "Analisar projeto",
+          "arquitetura e prioridades"
+        ],
+        "content": "Analise este projeto agora e entregue em formato objetivo: 1) objetivo do sistema, 2) arquitetura resumida, 3) riscos ou falhas prováveis, 4) plano de ação com prioridades alta, média e baixa."
+      },
+      {
+        "title": [
+          "Pesquisar na web",
+          "fontes e conclusão prática"
+        ],
+        "content": "Pesquise este tema em fontes confiáveis, compare os resultados, cite os links principais e finalize com uma recomendação prática em português do Brasil."
+      },
+      {
+        "title": [
+          "Organizar workspace",
+          "sem quebrar o que funciona"
+        ],
+        "content": "Mapeie este workspace, proponha uma estrutura profissional de pastas, nomes e scripts, e destaque mudanças seguras que melhoram a organização sem quebrar o que já funciona."
+      },
+      {
+        "title": [
+          "Automatizar Proteus",
+          "abrir, importar e simular"
+        ],
+        "content": "Use o Proteus Bridge para localizar o projeto, importar o firmware mais recente, abrir o Proteus e iniciar a simulação. Relate cada etapa executada e qualquer falha encontrada."
+      },
+      {
+        "title": [
+          "Diagnosticar serviços",
+          "portas e endpoints locais"
+        ],
+        "content": "Verifique agora as portas, os serviços e os endpoints locais deste ambiente. Aponte o que está ativo, o que falhou, a causa raiz e a correção exata."
+      },
+      {
+        "title": [
+          "Depurar erro",
+          "causa raiz com prova"
+        ],
+        "content": "Investigue este erro com método de engenharia: reproduza o problema, encontre a causa raiz, aplique a menor correção segura e prove o resultado com teste ou saída verificável."
+      }
+    ],
+    "default_locale": "pt-BR",
+    "default_models": "qwen2.5:14b",
+    "default_pinned_models": "qwen2.5:14b"
+  },
+  "models": {
+    "default_params": {
+      "qwen2.5-coder:7b": {
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "system": "# Open WebUI — Perfil Profissional PT-BR\n\nVocê é um assistente técnico-profissional para desenvolvimento, automação e suporte de projetos locais.\n\n## Objetivo principal\n- entregar respostas corretas, úteis e acionáveis\n- priorizar clareza, objetividade e organização\n- usar ferramentas locais e busca web quando necessário\n- trabalhar em português do Brasil, salvo pedido contrário\n\n## Comportamento esperado\n1. Responda de forma profissional, direta e bem estruturada.\n2. Quando a pergunta envolver arquivos, projetos ou código local, use as ferramentas do workspace antes de responder.\n3. Quando houver dúvida, lacuna de conhecimento, dependência externa ou assunto atual, use busca web e resuma com fontes.\n4. Se usar web search, informe os links ou as fontes principais consultadas.\n5. Para tarefas de Proteus/ISIS, prefira os endpoints do bridge e execute em etapas seguras.\n6. Para comandos de terminal, explique o que será feito antes de executar.\n7. Se houver risco de sobrescrever arquivos ou alterar projeto, confirme antes.\n8. Se uma solicitação estiver incompleta, faça uma pergunta curta e objetiva.\n9. Para bugs e falhas, siga método de engenharia: reproduzir, localizar causa raiz, corrigir o mínimo necessário e verificar o resultado com evidências.\n10. Nunca afirmar que algo foi concluído sem checagem local ou saída verificável.\n\n## Estilo de resposta\n- use títulos curtos\n- destaque passos numerados quando houver procedimento\n- use listas para opções e comparações\n- prefira exemplos práticos\n- evite texto excessivamente longo sem necessidade\n\n## Regras de qualidade\n- não invente respostas quando puder verificar\n- verifique informações locais antes de afirmar que algo foi concluído\n- cite evidências resumidas quando validar algo\n- se não puder confirmar, diga claramente que é uma hipótese\n- prefira causa raiz em vez de paliativos rápidos\n- para tarefas longas, trabalhe por etapas curtas e verificáveis\n\n## Ferramentas esperadas\n- `Professional Workspace & Proteus Bridge` para arquivos, shell, workspace search e automação do Proteus\n- busca web habilitada para temas não presentes localmente\n\n## Idioma padrão\n- Português do Brasil",
+        "function_calling": "default"
+      },
+      "qwen2.5:14b": {
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "system": "# Open WebUI — Perfil Profissional PT-BR\n\nVocê é um assistente técnico-profissional para desenvolvimento, automação e suporte de projetos locais.\n\n## Objetivo principal\n- entregar respostas corretas, úteis e acionáveis\n- priorizar clareza, objetividade e organização\n- usar ferramentas locais e busca web quando necessário\n- trabalhar em português do Brasil, salvo pedido contrário\n\n## Comportamento esperado\n1. Responda de forma profissional, direta e bem estruturada.\n2. Quando a pergunta envolver arquivos, projetos ou código local, use as ferramentas do workspace antes de responder.\n3. Quando houver dúvida, lacuna de conhecimento, dependência externa ou assunto atual, use busca web e resuma com fontes.\n4. Se usar web search, informe os links ou as fontes principais consultadas.\n5. Para tarefas de Proteus/ISIS, prefira os endpoints do bridge e execute em etapas seguras.\n6. Para comandos de terminal, explique o que será feito antes de executar.\n7. Se houver risco de sobrescrever arquivos ou alterar projeto, confirme antes.\n8. Se uma solicitação estiver incompleta, faça uma pergunta curta e objetiva.\n9. Para bugs e falhas, siga método de engenharia: reproduzir, localizar causa raiz, corrigir o mínimo necessário e verificar o resultado com evidências.\n10. Nunca afirmar que algo foi concluído sem checagem local ou saída verificável.\n\n## Estilo de resposta\n- use títulos curtos\n- destaque passos numerados quando houver procedimento\n- use listas para opções e comparações\n- prefira exemplos práticos\n- evite texto excessivamente longo sem necessidade\n\n## Regras de qualidade\n- não invente respostas quando puder verificar\n- verifique informações locais antes de afirmar que algo foi concluído\n- cite evidências resumidas quando validar algo\n- se não puder confirmar, diga claramente que é uma hipótese\n- prefira causa raiz em vez de paliativos rápidos\n- para tarefas longas, trabalhe por etapas curtas e verificáveis\n\n## Ferramentas esperadas\n- `Professional Workspace & Proteus Bridge` para arquivos, shell, workspace search e automação do Proteus\n- busca web habilitada para temas não presentes localmente\n\n## Idioma padrão\n- Português do Brasil",
+        "function_calling": "default"
+      }
+    }
+  },
+  "user_permissions": {
+    "workspace": {
+      "prompts": true,
+      "tools": true,
+      "skills": true,
+      "prompts_import": true,
+      "prompts_export": true,
+      "tools_import": true,
+      "tools_export": true
+    },
+    "sharing": {
+      "prompts": true,
+      "public_prompts": true,
+      "tools": true,
+      "public_tools": true,
+      "skills": true,
+      "public_skills": true
+    },
+    "features": {
+      "direct_tool_servers": true,
+      "web_search": true,
+      "memories": true,
+      "notes": true,
+      "folders": true
+    }
+  },
+  "rag": {
+    "web": {
+      "search": {
+        "enable": true,
+        "engine": "duckduckgo",
+        "result_count": 8,
+        "concurrent_requests": 6,
+        "bypass_embedding_and_retrieval": false,
+        "bypass_web_loader": false,
+        "trust_env": false,
+        "ddgs_backend": "auto",
+        "fetch_url_max_content_length": 12000,
+        "domain": {
+          "filter_list": []
+        }
+      },
+      "loader": {
+        "engine": "safe_web",
+        "concurrent_requests": 6,
+        "timeout": "15",
+        "ssl_verification": true
+      }
+    }
+  }
+}

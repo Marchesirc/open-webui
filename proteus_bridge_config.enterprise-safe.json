@@ -1,0 +1,149 @@
+{
+  "proteus_exe": "C:/Users/rober/AppData/Local/Programs/Labcenter Electronics/Proteus 9 Professional/Bin/PDS.exe",
+  "projects_root": "D:/Projetos/Proteus_Projects",
+  "host": "127.0.0.1",
+  "port": 8001,
+  "allow_write": false,
+  "allow_shell_commands": false,
+  "shell_timeout_seconds": 60,
+  "shell_max_output_chars": 12000,
+  "web_search_max_results": 8,
+  "web_fetch_max_chars": 12000,
+  "web_user_agent": "Mozilla/5.0",
+  "project_extensions": [
+    ".pdsprj",
+    ".dsn"
+  ],
+  "editable_extensions": [
+    ".txt",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".ino",
+    ".asm",
+    ".hex",
+    ".elf",
+    ".json",
+    ".md",
+    ".py",
+    ".xml",
+    ".ps1",
+    ".bat"
+  ],
+  "default_launch_args": [],
+  "proteus_window_title_hint": "Proteus",
+  "ui_macros": {
+    "save": "^s",
+    "start": "",
+    "stop": "",
+    "pause": "",
+    "reset": ""
+  },
+  "automation_profiles": {
+    "hex_copy_only": {
+      "description": "Usa um HEX/ELF ja compilado, copia para a pasta do projeto e abre o Proteus.",
+      "build": {
+        "enabled": false
+      },
+      "artifact": {
+        "path": "",
+        "glob": "",
+        "target_name": "firmware.hex",
+        "overwrite": true
+      },
+      "actions": {
+        "backup": true,
+        "open_project": true,
+        "focus": true,
+        "macro_after_open": "",
+        "delay_after_open_ms": 1200,
+        "send_keys": []
+      }
+    },
+    "arduino_cli_uno": {
+      "description": "Compila um sketch Arduino UNO com arduino-cli e injeta o HEX no projeto.",
+      "build": {
+        "enabled": true,
+        "command": "arduino-cli",
+        "args": [
+          "compile",
+          "--fqbn",
+          "arduino:avr:uno",
+          "{source_dir}",
+          "--output-dir",
+          "{build_dir}"
+        ],
+        "cwd": "{source_dir}",
+        "timeout_seconds": 300
+      },
+      "artifact": {
+        "path": "{build_dir}/{source_name}.ino.hex",
+        "glob": "{build_dir}/**/*.hex",
+        "target_name": "firmware.hex",
+        "overwrite": true
+      },
+      "actions": {
+        "backup": true,
+        "open_project": true,
+        "focus": true,
+        "macro_after_open": "start",
+        "delay_after_open_ms": 1500,
+        "send_keys": []
+      }
+    },
+    "platformio_generic": {
+      "description": "Roda PlatformIO, encontra o ELF mais novo e inicia o Proteus.",
+      "build": {
+        "enabled": true,
+        "command": "pio",
+        "args": [
+          "run"
+        ],
+        "cwd": "{source_dir}",
+        "timeout_seconds": 300
+      },
+      "artifact": {
+        "glob": "{source_dir}/.pio/build/**/*.elf",
+        "target_name": "firmware.elf",
+        "overwrite": true
+      },
+      "actions": {
+        "backup": true,
+        "open_project": true,
+        "focus": true,
+        "macro_after_open": "start",
+        "delay_after_open_ms": 1500,
+        "send_keys": []
+      }
+    },
+    "custom_external_builder": {
+      "description": "Executa um script PowerShell de build e importa o artefato gerado.",
+      "build": {
+        "enabled": true,
+        "command": "powershell",
+        "args": [
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{source_dir}/build.ps1"
+        ],
+        "cwd": "{source_dir}",
+        "timeout_seconds": 600
+      },
+      "artifact": {
+        "glob": "{build_dir}/**/*.hex",
+        "target_name": "firmware.hex",
+        "overwrite": true
+      },
+      "actions": {
+        "backup": true,
+        "open_project": true,
+        "focus": true,
+        "macro_after_open": "start",
+        "delay_after_open_ms": 1500,
+        "send_keys": []
+      }
+    }
+  }
+}

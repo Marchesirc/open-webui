@@ -1,0 +1,51 @@
+[
+  {
+    "title": [
+      "Modo engenharia",
+      "objetivo e verificável"
+    ],
+    "content": "A partir de agora, responda em português do Brasil como um assistente técnico-profissional. Verifique fatos com evidências locais sempre que possível, seja direto, evite rodeios e finalize com próximos passos objetivos."
+  },
+  {
+    "title": [
+      "Analisar projeto",
+      "arquitetura e prioridades"
+    ],
+    "content": "Analise este projeto agora e entregue em formato objetivo: 1) objetivo do sistema, 2) arquitetura resumida, 3) riscos ou falhas prováveis, 4) plano de ação com prioridades alta, média e baixa."
+  },
+  {
+    "title": [
+      "Pesquisar na web",
+      "fontes e conclusão prática"
+    ],
+    "content": "Pesquise este tema em fontes confiáveis, compare os resultados, cite os links principais e finalize com uma recomendação prática em português do Brasil."
+  },
+  {
+    "title": [
+      "Organizar workspace",
+      "sem quebrar o que funciona"
+    ],
+    "content": "Mapeie este workspace, proponha uma estrutura profissional de pastas, nomes e scripts, e destaque mudanças seguras que melhoram a organização sem quebrar o que já funciona."
+  },
+  {
+    "title": [
+      "Automatizar Proteus",
+      "abrir, importar e simular"
+    ],
+    "content": "Use o Proteus Bridge para localizar o projeto, importar o firmware mais recente, abrir o Proteus e iniciar a simulação. Relate cada etapa executada e qualquer falha encontrada."
+  },
+  {
+    "title": [
+      "Diagnosticar serviços",
+      "portas e endpoints locais"
+    ],
+    "content": "Verifique agora as portas, os serviços e os endpoints locais deste ambiente. Aponte o que está ativo, o que falhou, a causa raiz e a correção exata."
+  },
+  {
+    "title": [
+      "Depurar erro",
+      "causa raiz com prova"
+    ],
+    "content": "Investigue este erro com método de engenharia: reproduza o problema, encontre a causa raiz, aplique a menor correção segura e prove o resultado com teste ou saída verificável."
+  }
+]
