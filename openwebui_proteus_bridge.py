@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import glob
 import json
 import re
@@ -327,6 +328,23 @@ class NetworkCheckRequest(BaseModel):
     timeout_seconds: int = 5
 
 
+class AnalyzeSchematicPdfRequest(BaseModel):
+    pdf_path: str = Field(..., description="Caminho relativo ao projects_root para o PDF do esquemático")
+    max_pages: int = Field(default=12, ge=1, le=100)
+    persist_output: bool = True
+    output_relative_path: Optional[str] = None
+
+
+class PrepareProteusAssistedProjectRequest(BaseModel):
+    project_folder: str = Field(..., description="Pasta relativa dentro do projects_root para gerar o pacote assistido")
+    analysis_relative_path: Optional[str] = Field(default=None, description="JSON gerado por /pdf/analyze-schematic")
+    pdf_path: Optional[str] = Field(default=None, description="PDF original dentro do projects_root, usado se não houver JSON")
+    project_display_name: Optional[str] = None
+    max_pages: int = Field(default=12, ge=1, le=100)
+    overwrite: bool = False
+    copy_source_pdf: bool = True
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -569,6 +587,988 @@ def read_text_content(path: Path) -> str:
         except UnicodeDecodeError:
             continue
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+SCHEMATIC_REFERENCE_RE = re.compile(
+    r"\b(?:R|C|L|D|Q|U|IC|J|JP|K|T|Y|X|SW|F|FB|LED|RV|VR|P|CN|CONN)\d{1,4}[A-Z]?\b",
+    re.IGNORECASE,
+)
+SCHEMATIC_SIGNAL_RE = re.compile(
+    r"\b(?:GND|AGND|DGND|PGND|VCC|VDD|VSS|VIN|VBAT|3V3|5V|12V|24V|SCL|SDA|TX|RX|MISO|MOSI|SCK|CLK|RST|RESET|EN|CS|INT|PWM\d*|ADC\d*|GPIO\d+)\b",
+    re.IGNORECASE,
+)
+SCHEMATIC_VALUE_RE = re.compile(
+    r"\b(?:\d+(?:[\.,]\d+)?\s?(?:R|K|M|OHM|F|UF|NF|PF|H|MH|UH|V|A|W|HZ|KHZ|MHZ)|ATMEGA\w+|ESP32\S*|STM32\S*|PIC\d+\w*|LM\d+|NE555|AMS1117\S*|78\d{2}|74HC\d+|BC\d+|2N\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def import_pdf_reader() -> Any:
+    try:
+        from pypdf import PdfReader  # type: ignore import-not-found
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Dependência 'pypdf' não encontrada. Execute start_proteus_bridge.ps1 ou instale as dependências de "
+                f"{BASE_DIR / 'openwebui_bridge_requirements.txt'}"
+            ),
+        ) from exc
+    return PdfReader
+
+
+def infer_component_family(reference: str) -> str:
+    prefix = re.match(r"[A-Z]+", reference.upper())
+    token = prefix.group(0) if prefix else ""
+    mapping = {
+        "R": "resistor",
+        "RV": "potentiometer",
+        "VR": "voltage_regulator_or_trim",
+        "C": "capacitor",
+        "L": "inductor",
+        "D": "diode_or_led",
+        "LED": "led",
+        "Q": "transistor",
+        "U": "integrated_circuit",
+        "IC": "integrated_circuit",
+        "J": "connector",
+        "JP": "jumper",
+        "P": "connector",
+        "CN": "connector",
+        "CONN": "connector",
+        "K": "relay",
+        "SW": "switch",
+        "Y": "crystal_or_oscillator",
+        "X": "crystal_or_connector",
+        "F": "fuse",
+        "FB": "ferrite_bead",
+        "T": "transformer_or_testpoint",
+    }
+    return mapping.get(token, "unknown")
+
+
+def build_schematic_pdf_analysis(pdf_path: Path, max_pages: int) -> dict[str, Any]:
+    PdfReader = import_pdf_reader()
+    reader = PdfReader(str(pdf_path))
+    pages = list(reader.pages[:max_pages])
+    text_by_page: list[dict[str, Any]] = []
+    component_map: dict[str, dict[str, Any]] = {}
+    signal_map: dict[str, dict[str, Any]] = {}
+    extracted_chars = 0
+
+    for index, page in enumerate(pages, start=1):
+        text = (page.extract_text() or "").strip()
+        text_by_page.append(
+            {
+                "page_number": index,
+                "characters": len(text),
+                "preview": text[:500],
+            }
+        )
+        if not text:
+            continue
+
+        extracted_chars += len(text)
+        for raw_line in text.splitlines():
+            line = " ".join(raw_line.split())
+            if not line:
+                continue
+
+            references = sorted({match.group(0).upper() for match in SCHEMATIC_REFERENCE_RE.finditer(line)})
+            values = sorted({match.group(0).upper() for match in SCHEMATIC_VALUE_RE.finditer(line)})
+            signals = sorted({match.group(0).upper() for match in SCHEMATIC_SIGNAL_RE.finditer(line)})
+
+            for reference in references:
+                entry = component_map.setdefault(
+                    reference,
+                    {
+                        "reference": reference,
+                        "family": infer_component_family(reference),
+                        "candidate_values": [],
+                        "evidence_lines": [],
+                        "pages": [],
+                    },
+                )
+                for value in values:
+                    if value not in entry["candidate_values"]:
+                        entry["candidate_values"].append(value)
+                if line not in entry["evidence_lines"] and len(entry["evidence_lines"]) < 3:
+                    entry["evidence_lines"].append(line[:220])
+                if index not in entry["pages"]:
+                    entry["pages"].append(index)
+
+            for signal in signals:
+                net_entry = signal_map.setdefault(signal, {"name": signal, "count": 0, "evidence_lines": []})
+                net_entry["count"] += 1
+                if line not in net_entry["evidence_lines"] and len(net_entry["evidence_lines"]) < 3:
+                    net_entry["evidence_lines"].append(line[:220])
+
+    components = sorted(component_map.values(), key=lambda item: item["reference"])
+    signals = sorted(signal_map.values(), key=lambda item: (-item["count"], item["name"]))
+    warnings = []
+
+    if extracted_chars == 0:
+        warnings.append("O PDF não retornou texto extraível. Se for um scan/imagem, este pipeline não reconstrói o esquemático automaticamente.")
+    if not components:
+        warnings.append("Nenhum designador de referência típico foi encontrado no texto extraído.")
+    if len(components) < 5:
+        warnings.append("Poucos componentes foram detectados. Revise o PDF ou use OCR antes de gerar artefatos para o Proteus.")
+
+    if extracted_chars == 0:
+        readiness = "low"
+    elif len(components) >= 15 and len(signals) >= 5:
+        readiness = "medium"
+    else:
+        readiness = "low"
+
+    return {
+        "analysis_type": "schematic_pdf_preflight",
+        "pdf_name": pdf_path.name,
+        "page_count_total": len(reader.pages),
+        "pages_processed": len(pages),
+        "extracted_text_characters": extracted_chars,
+        "readiness": readiness,
+        "warnings": warnings,
+        "components_count": len(components),
+        "signal_candidates_count": len(signals),
+        "components": components,
+        "signal_candidates": signals[:100],
+        "page_previews": text_by_page,
+        "suggested_next_steps": [
+            "Revise o JSON gerado para confirmar referência, valor e sinais detectados.",
+            "Monte ou corrija um BOM/netlist intermediário antes de tentar construir o projeto no ISIS Proteus.",
+            "Use esse resultado como entrada assistida para criar o projeto e depois importar firmware ou simular via bridge.",
+        ],
+    }
+
+
+def analyze_schematic_pdf(request: AnalyzeSchematicPdfRequest) -> dict[str, Any]:
+    root = ensure_root_exists()
+    pdf_path = safe_relative_path(request.pdf_path)
+    if pdf_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Informe um arquivo .pdf dentro do projects_root")
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail=f"PDF não encontrado: {pdf_path}")
+
+    analysis = build_schematic_pdf_analysis(pdf_path, request.max_pages)
+    response = {
+        "ok": True,
+        "pdf_relative_path": str(pdf_path.relative_to(root)),
+        "analysis": analysis,
+    }
+
+    if request.persist_output:
+        output_relative = request.output_relative_path or str(
+            pdf_path.relative_to(root).with_suffix(".schematic.analysis.json")
+        )
+        output_path = safe_relative_path(output_relative)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_payload = dict(response)
+        output_payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
+        output_path.write_text(json.dumps(output_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        response["output_relative_path"] = str(output_path.relative_to(root))
+
+    return response
+
+
+def load_schematic_analysis_payload(
+    analysis_relative_path: Optional[str],
+    pdf_path: Optional[str],
+    max_pages: int,
+) -> dict[str, Any]:
+    root = ensure_root_exists()
+    if analysis_relative_path:
+        analysis_path = safe_relative_path(analysis_relative_path)
+        if not analysis_path.exists() or not analysis_path.is_file():
+            raise HTTPException(status_code=404, detail=f"Arquivo de análise não encontrado: {analysis_path}")
+        try:
+            payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"JSON de análise inválido: {analysis_path}") from exc
+        analysis = payload.get("analysis") if isinstance(payload, dict) else None
+        if not isinstance(analysis, dict):
+            raise HTTPException(status_code=400, detail="O JSON informado não contém a chave 'analysis'")
+        return {
+            "analysis": analysis,
+            "source_analysis_relative_path": str(analysis_path.relative_to(root)),
+            "source_pdf_relative_path": payload.get("pdf_relative_path"),
+        }
+
+    if pdf_path:
+        payload = analyze_schematic_pdf(
+            AnalyzeSchematicPdfRequest(
+                pdf_path=pdf_path,
+                max_pages=max_pages,
+                persist_output=False,
+            )
+        )
+        return {
+            "analysis": payload["analysis"],
+            "source_analysis_relative_path": None,
+            "source_pdf_relative_path": payload.get("pdf_relative_path"),
+        }
+
+    raise HTTPException(status_code=400, detail="Informe 'analysis_relative_path' ou 'pdf_path'")
+
+
+def component_family_rank(family: str) -> int:
+    order = {
+        "connector": 0,
+        "voltage_regulator_or_trim": 1,
+        "relay": 2,
+        "switch": 3,
+        "integrated_circuit": 4,
+        "transistor": 5,
+        "diode_or_led": 6,
+        "led": 7,
+        "crystal_or_oscillator": 8,
+        "capacitor": 9,
+        "resistor": 10,
+        "potentiometer": 11,
+        "inductor": 12,
+        "ferrite_bead": 13,
+        "fuse": 14,
+        "jumper": 15,
+        "transformer_or_testpoint": 16,
+        "crystal_or_connector": 17,
+        "unknown": 99,
+    }
+    return order.get(family, 99)
+
+
+def build_component_rows(components: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = []
+    ordered = sorted(
+        components,
+        key=lambda item: (component_family_rank(str(item.get("family", "unknown"))), str(item.get("reference", ""))),
+    )
+    for item in ordered:
+        rows.append(
+            {
+                "reference": str(item.get("reference", "")),
+                "family": str(item.get("family", "unknown")),
+                "candidate_value": ", ".join(item.get("candidate_values", [])[:5]),
+                "pages": ", ".join(str(page) for page in item.get("pages", [])),
+                "evidence": " | ".join(item.get("evidence_lines", [])[:2]),
+            }
+        )
+    return rows
+
+
+def build_signal_rows(signals: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = []
+    for item in signals:
+        rows.append(
+            {
+                "signal": str(item.get("name", "")),
+                "count": str(item.get("count", 0)),
+                "evidence": " | ".join(item.get("evidence_lines", [])[:2]),
+            }
+        )
+    return rows
+
+
+def write_csv_rows(path: Path, rows: list[dict[str, str]]) -> None:
+    headers = list(rows[0].keys()) if rows else ["item"]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        if rows:
+            writer.writerows(rows)
+
+
+def confidence_label_from_score(score: int) -> str:
+    if score >= 70:
+        return "high"
+    if score >= 40:
+        return "medium"
+    return "low"
+
+
+def score_component_confidence(component: dict[str, Any], inferred_signals: list[str]) -> dict[str, Any]:
+    score = 0
+    reasons = []
+    evidence_lines = component.get("evidence_lines", [])
+    candidate_values = component.get("candidate_values", [])
+    pages = component.get("pages", [])
+
+    if evidence_lines:
+        score += min(20, 8 * len(evidence_lines))
+        reasons.append(f"{len(evidence_lines)} linha(s) de evidencia textual")
+    if candidate_values:
+        score += min(20, 10 * len(candidate_values))
+        reasons.append(f"{len(candidate_values)} valor(es) candidato(s)")
+    if len(pages) >= 2:
+        score += 10
+        reasons.append("componente apareceu em multiplas paginas")
+    elif len(pages) == 1:
+        score += 5
+        reasons.append("componente apareceu em uma pagina identificada")
+    if inferred_signals:
+        score += min(30, 15 * len(inferred_signals))
+        reasons.append(f"{len(inferred_signals)} rede(s) inferida(s)")
+
+    family = str(component.get("family", "unknown"))
+    if family != "unknown":
+        score += 10
+        reasons.append(f"familia inferida: {family}")
+
+    final_score = min(score, 100)
+    return {
+        "score": final_score,
+        "label": confidence_label_from_score(final_score),
+        "reasons": reasons,
+    }
+
+
+def score_net_confidence(net_name: str, members: list[str], evidence: list[str]) -> dict[str, Any]:
+    score = 0
+    reasons = []
+    canonical_power_nets = {"GND", "AGND", "DGND", "PGND", "VCC", "VDD", "VSS", "VIN", "VBAT", "3V3", "5V", "12V", "24V"}
+
+    if net_name.upper() in canonical_power_nets:
+        score += 20
+        reasons.append("rede com nome canonico de alimentacao/terra")
+    if members:
+        score += min(40, 10 * len(members))
+        reasons.append(f"{len(members)} componente(s) associado(s)")
+    if evidence:
+        score += min(30, 10 * len(evidence))
+        reasons.append(f"{len(evidence)} evidencia(s) textual(is)")
+
+    final_score = min(score, 100)
+    return {
+        "score": final_score,
+        "label": confidence_label_from_score(final_score),
+        "reasons": reasons,
+    }
+
+
+def build_draft_netlist(analysis: dict[str, Any]) -> dict[str, Any]:
+    components = analysis.get("components", [])
+    signals = analysis.get("signal_candidates", [])
+    signal_names = [str(item.get("name", "")).upper() for item in signals if item.get("name")]
+    nets: dict[str, dict[str, Any]] = {
+        name: {"name": name, "members": [], "evidence": [], "confidence": "low", "confidence_score": 0, "confidence_reasons": []}
+        for name in signal_names
+    }
+    component_nodes = []
+    review_rows = []
+    unresolved_components = []
+
+    for component in components:
+        reference = str(component.get("reference", ""))
+        evidence_lines = [str(line) for line in component.get("evidence_lines", [])]
+        inferred_signals = []
+        for signal_name in signal_names:
+            if any(signal_name in line.upper() for line in evidence_lines):
+                inferred_signals.append(signal_name)
+
+        confidence_info = score_component_confidence(component, inferred_signals)
+        confidence = confidence_info["label"]
+        if not inferred_signals:
+            unresolved_components.append(reference)
+
+        for signal_name in inferred_signals:
+            net = nets.setdefault(
+                signal_name,
+                {"name": signal_name, "members": [], "evidence": [], "confidence": "low", "confidence_score": 0, "confidence_reasons": []},
+            )
+            net["members"].append(reference)
+            for line in evidence_lines[:2]:
+                if line not in net["evidence"] and len(net["evidence"]) < 4:
+                    net["evidence"].append(line)
+
+        component_nodes.append(
+            {
+                "reference": reference,
+                "family": component.get("family", "unknown"),
+                "candidate_value": ", ".join(component.get("candidate_values", [])[:5]),
+                "inferred_nets": inferred_signals,
+                "confidence": confidence,
+                "confidence_score": confidence_info["score"],
+                "confidence_reasons": confidence_info["reasons"],
+                "pages": component.get("pages", []),
+                "evidence_lines": evidence_lines[:3],
+            }
+        )
+        review_rows.append(
+            {
+                "reference": reference,
+                "family": str(component.get("family", "unknown")),
+                "candidate_value": ", ".join(component.get("candidate_values", [])[:5]),
+                "inferred_nets": ", ".join(inferred_signals),
+                "confidence": confidence,
+                "confidence_score": str(confidence_info["score"]),
+                "confidence_reasons": " | ".join(confidence_info["reasons"]),
+                "review_status": "pending",
+            }
+        )
+
+    net_rows = []
+    for net_name, net in sorted(nets.items(), key=lambda item: item[0]):
+        unique_members = sorted(set(net["members"]))
+        net_confidence = score_net_confidence(net_name, unique_members, net.get("evidence", []))
+        net["confidence"] = net_confidence["label"]
+        net["confidence_score"] = net_confidence["score"]
+        net["confidence_reasons"] = net_confidence["reasons"]
+        net_rows.append(
+            {
+                "net": net_name,
+                "member_count": str(len(unique_members)),
+                "members": ", ".join(unique_members),
+                "confidence": str(net.get("confidence", "low")),
+                "confidence_score": str(net.get("confidence_score", 0)),
+                "confidence_reasons": " | ".join(net.get("confidence_reasons", [])),
+                "evidence": " | ".join(net.get("evidence", [])[:3]),
+            }
+        )
+
+    return {
+        "analysis_type": "draft_netlist_from_pdf_analysis",
+        "confidence_model": "text_cooccurrence",
+        "limitations": [
+            "Esta netlist e apenas um rascunho derivado de coocorrencia textual no PDF.",
+            "Nao ha inferencia confiavel de pinos, encapsulamento ou topologia completa.",
+            "Toda conexao deve ser revisada manualmente antes de virar esquematico definitivo no Proteus.",
+        ],
+        "summary": {
+            "components_total": len(components),
+            "nets_total": len(net_rows),
+            "components_with_inferred_nets": sum(1 for item in component_nodes if item["inferred_nets"]),
+            "components_without_inferred_nets": len(unresolved_components),
+        },
+        "components": component_nodes,
+        "nets": [
+            {
+                "name": row["net"],
+                "member_count": int(row["member_count"]),
+                "members": row["members"].split(", ") if row["members"] else [],
+                "confidence": row["confidence"],
+                "confidence_score": int(row["confidence_score"]),
+                "confidence_reasons": row["confidence_reasons"].split(" | ") if row["confidence_reasons"] else [],
+                "evidence": row["evidence"].split(" | ") if row["evidence"] else [],
+            }
+            for row in net_rows
+        ],
+        "unresolved_components": unresolved_components,
+        "review_rows": review_rows,
+        "net_rows": net_rows,
+    }
+
+
+def infer_functional_block(component_node: dict[str, Any]) -> dict[str, str]:
+    family = str(component_node.get("family", "unknown"))
+    reference = str(component_node.get("reference", "")).upper()
+    value = str(component_node.get("candidate_value", "")).upper()
+    nets = [str(item).upper() for item in component_node.get("inferred_nets", [])]
+    nets_blob = " ".join(nets)
+    value_blob = f"{reference} {value}"
+
+    power_tokens = {"GND", "AGND", "DGND", "PGND", "VCC", "VDD", "VSS", "VIN", "VBAT", "3V3", "5V", "12V", "24V"}
+    comms_tokens = {"TX", "RX", "SDA", "SCL", "MISO", "MOSI", "SCK", "CLK", "CS", "INT", "CAN", "RS485", "USB"}
+    mcu_tokens = ("ATMEGA", "STM32", "ESP32", "PIC", "RP2040", "ARDUINO", "MCU")
+    display_tokens = ("LCD", "OLED", "TFT", "ILI", "ST77", "SSD1306", "HD44780", "DISPLAY", "SEG", "COM")
+    sensor_tokens = ("SENSOR", "TEMP", "HUM", "PRESS", "GYRO", "ACCEL", "MPU", "BME", "BMP", "DHT", "NTC", "LDR", "HALL", "ACS", "INA", "LM35")
+    usb_tokens = {"USB", "D+", "D-", "VBUS"}
+    can_tokens = {"CAN", "CANH", "CANL", "TXCAN", "RXCAN"}
+    uart_tokens = {"TX", "RX", "UART", "USART"}
+    rs485_tokens = {"RS485", "A", "B", "DE", "RE", "DI", "RO"}
+    i2c_tokens = {"I2C", "SCL", "SDA"}
+    spi_tokens = {"SPI", "MISO", "MOSI", "SCK", "CS"}
+    analog_sensor_tokens = ("NTC", "LDR", "LM35", "ACS", "INA", "PRESS", "THERM", "CURRENT", "SHUNT")
+    digital_sensor_tokens = ("DHT", "BME", "BMP", "MPU", "GYRO", "ACCEL", "HALL", "SENSOR", "I2C", "SPI")
+    regulator_tokens = ("AMS1117", "LM7805", "LM1117", "BUCK", "BOOST", "LDO", "REG")
+    can_transceiver_tokens = ("MCP2551", "SN65HVD", "TJA1050", "MCP256", "TCAN")
+    rs485_transceiver_tokens = ("MAX485", "SP3485", "SN75176", "ADM485", "RS485")
+
+    if family in {"connector", "jumper"}:
+        if any(token in nets for token in usb_tokens) or any(token in value_blob for token in usb_tokens):
+            return {"block": "usb_interface", "reason": "conector associado a sinais USB"}
+        if any(token in nets for token in can_tokens):
+            return {"block": "can_interface", "reason": "conector associado a sinais CAN"}
+        if any(token in nets for token in rs485_tokens) or any(token in value_blob for token in rs485_transceiver_tokens):
+            return {"block": "rs485_interface", "reason": "conector associado a sinais RS485"}
+        if any(token in nets for token in uart_tokens):
+            return {"block": "uart_interface", "reason": "conector associado a sinais seriais TX/RX"}
+        return {"block": "connectors_io", "reason": "familia de conector/jumper"}
+
+    if family in {"voltage_regulator_or_trim", "fuse", "inductor", "ferrite_bead"} or any(token in power_tokens for token in nets):
+        if any(token in value_blob for token in regulator_tokens) or family == "voltage_regulator_or_trim":
+            return {"block": "power_regulation", "reason": "regulador ou circuito de condicionamento de alimentacao"}
+        return {"block": "power_supply", "reason": "familia ou sinais associados a alimentacao/terra"}
+
+    if any(token in value_blob for token in display_tokens) or any(token in nets_blob for token in ("LCD", "OLED", "TFT", "SEG", "COM", "BL", "BACKLIGHT")):
+        if any(token in nets for token in i2c_tokens):
+            return {"block": "display_i2c", "reason": "display com sinais I2C detectados"}
+        if any(token in nets for token in spi_tokens):
+            return {"block": "display_spi", "reason": "display com sinais SPI detectados"}
+        return {"block": "display_ui", "reason": "indicadores de display/interface visual detectados"}
+
+    if any(token in value_blob for token in sensor_tokens) or any(token in nets_blob for token in ("SENSOR", "ADC", "THERM", "TEMP", "HALL", "PRESS", "HUM")):
+        if any(token in value_blob for token in analog_sensor_tokens) or any(token in nets_blob for token in ("ADC", "AN", "AOUT", "AIN", "CURRENT", "THERM")):
+            return {"block": "sensor_analog", "reason": "sensor analogico ou condicionamento analogico detectado"}
+        if any(token in value_blob for token in digital_sensor_tokens) or any(token in nets for token in i2c_tokens.union(spi_tokens)):
+            return {"block": "sensor_digital", "reason": "sensor digital com barramento ou interface detectada"}
+        return {"block": "sensor_frontend", "reason": "indicadores de sensor ou condicionamento analogico detectados"}
+
+    if family == "integrated_circuit" and (any(token in value_blob for token in mcu_tokens) or any(token.startswith("GPIO") for token in nets) or any(token in nets for token in comms_tokens)):
+        return {"block": "mcu_control", "reason": "circuito integrado com caracteristicas de microcontrolador/controle"}
+
+    if family in {"crystal_or_oscillator", "crystal_or_connector"} or "NE555" in value_blob:
+        return {"block": "clock_timing", "reason": "componente de clock/temporizacao"}
+
+    if any(token in value_blob for token in can_transceiver_tokens) or any(token in nets for token in can_tokens):
+        return {"block": "can_transceiver", "reason": "transceptor ou sinais dedicados a barramento CAN detectados"}
+
+    if any(token in value_blob for token in rs485_transceiver_tokens) or any(token in nets for token in rs485_tokens):
+        return {"block": "rs485_interface", "reason": "transceptor ou sinais dedicados a RS485 detectados"}
+
+    if any(token in nets for token in can_tokens) or any(token in nets_blob for token in ("CAN", "CANH", "CANL", "MCP25")):
+        return {"block": "can_interface", "reason": "sinais ou referencias de barramento CAN detectados"}
+
+    if any(token in nets for token in usb_tokens) or any(token in nets_blob for token in ("USB", "VBUS", "D+", "D-")):
+        return {"block": "usb_interface", "reason": "sinais ou referencias de interface USB detectados"}
+
+    if any(token in nets for token in uart_tokens) or any(token in nets_blob for token in ("UART", "USART", "TX", "RX", "RS232", "RS485")):
+        return {"block": "uart_interface", "reason": "sinais ou referencias de interface serial detectados"}
+
+    if any(token in nets for token in comms_tokens) or any(token in nets_blob for token in ("I2C", "SPI", "CS", "SCL", "SDA", "MISO", "MOSI", "SCK")):
+        return {"block": "interface_comms", "reason": "sinais de interface/comunicacao detectados"}
+
+    if family in {"relay", "switch", "led", "diode_or_led", "transistor"}:
+        return {"block": "drivers_outputs", "reason": "familia ligada a acionamento, chaveamento ou saida"}
+
+    if family in {"resistor", "capacitor", "potentiometer", "unknown"}:
+        return {"block": "passive_support", "reason": "componente passivo ou sem bloco dominante inferido"}
+
+    return {"block": "misc_control", "reason": "bloco funcional nao determinado com alta certeza"}
+
+
+def block_priority(block_name: str) -> int:
+    order = {
+        "power_supply": 10,
+        "power_regulation": 20,
+        "connectors_io": 30,
+        "mcu_control": 40,
+        "clock_timing": 50,
+        "display_i2c": 60,
+        "display_spi": 61,
+        "display_ui": 62,
+        "sensor_analog": 70,
+        "sensor_digital": 71,
+        "sensor_frontend": 72,
+        "uart_interface": 80,
+        "usb_interface": 81,
+        "can_transceiver": 82,
+        "can_interface": 83,
+        "rs485_interface": 84,
+        "interface_comms": 85,
+        "drivers_outputs": 90,
+        "passive_support": 95,
+        "misc_control": 99,
+    }
+    return order.get(block_name, 999)
+
+
+def build_functional_blocks_summary(component_nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    block_map: dict[str, dict[str, Any]] = {}
+    for component in component_nodes:
+        block_info = infer_functional_block(component)
+        block_name = block_info["block"]
+        component["functional_block"] = block_name
+        component["functional_block_reason"] = block_info["reason"]
+
+        block = block_map.setdefault(
+            block_name,
+            {
+                "block": block_name,
+                "component_count": 0,
+                "references": [],
+                "families": set(),
+                "avg_confidence_score": 0,
+                "confidence_label": "low",
+                "reason_samples": [],
+            },
+        )
+        block["component_count"] += 1
+        block["references"].append(component.get("reference", ""))
+        block["families"].add(str(component.get("family", "unknown")))
+        block["avg_confidence_score"] += int(component.get("confidence_score", 0))
+        if block_info["reason"] not in block["reason_samples"] and len(block["reason_samples"]) < 3:
+            block["reason_samples"].append(block_info["reason"])
+
+    rows = []
+    blocks = []
+    for block_name, block in sorted(
+        block_map.items(),
+        key=lambda item: (block_priority(item[0]), -item[1]["component_count"], -item[1]["avg_confidence_score"], item[0]),
+    ):
+        component_count = int(block["component_count"])
+        avg_score = int(round(block["avg_confidence_score"] / component_count)) if component_count else 0
+        confidence_label = confidence_label_from_score(avg_score)
+        references = sorted(str(item) for item in block["references"] if item)
+        families = sorted(block["families"])
+        priority = block_priority(block_name)
+        block_entry = {
+            "block": block_name,
+            "priority": priority,
+            "component_count": component_count,
+            "references": references,
+            "families": families,
+            "avg_confidence_score": avg_score,
+            "confidence_label": confidence_label,
+            "reason_samples": block["reason_samples"],
+        }
+        blocks.append(block_entry)
+        rows.append(
+            {
+                "block": block_name,
+                "priority": str(priority),
+                "component_count": str(component_count),
+                "avg_confidence_score": str(avg_score),
+                "confidence_label": confidence_label,
+                "families": ", ".join(families),
+                "references": ", ".join(references[:20]),
+                "reason_samples": " | ".join(block["reason_samples"]),
+            }
+        )
+
+    return {
+        "blocks": blocks,
+        "rows": rows,
+    }
+
+
+def build_block_checklist(functional_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    checklist_rows = []
+    checklist_items = []
+    step_number = 1
+
+    action_map = {
+        "power_supply": "Inserir fontes, conectores de alimentacao e terras principais",
+        "power_regulation": "Montar reguladores, filtros e condicionamento de alimentacao",
+        "mcu_control": "Inserir MCU e circuitos de suporte imediato",
+        "display_ui": "Montar interface de display e sinais auxiliares",
+        "display_i2c": "Montar display I2C e validar SDA/SCL/alimentacao",
+        "display_spi": "Montar display SPI e validar MOSI/MISO/SCK/CS",
+        "sensor_frontend": "Montar sensores e entradas de condicionamento",
+        "sensor_analog": "Montar sensores analogicos e validar rotas para ADC",
+        "sensor_digital": "Montar sensores digitais e barramentos associados",
+        "uart_interface": "Montar interface serial UART/USART e conectores associados",
+        "can_interface": "Montar interface CAN e conectores do barramento",
+        "can_transceiver": "Montar transceptor CAN e validar CANH/CANL",
+        "rs485_interface": "Montar interface/transceptor RS485 e validar A/B/DE/RE",
+        "usb_interface": "Montar interface USB e validar VBUS/D+/D-",
+        "interface_comms": "Montar interfaces de comunicacao restantes",
+        "connectors_io": "Montar conectores de I/O e jumpers",
+        "drivers_outputs": "Montar estagios de acionamento, rele, transistor e saidas",
+        "clock_timing": "Montar clock, cristal e temporizacao",
+        "passive_support": "Adicionar passivos de suporte apos os blocos principais",
+        "misc_control": "Revisar e encaixar itens restantes sem bloco dominante",
+    }
+
+    verification_map = {
+        "power_supply": "Confirmar nomes das redes de alimentacao e GND no ISIS",
+        "power_regulation": "Confirmar tensoes esperadas e entrada/saida dos reguladores",
+        "mcu_control": "Confirmar pinos principais, clock, reset e alimentacao do MCU",
+        "display_ui": "Confirmar linhas de dados e alimentacao do display",
+        "display_i2c": "Confirmar SDA, SCL, endereco/modulo e alimentacao",
+        "display_spi": "Confirmar SCK, MOSI, MISO, CS, DC e reset se existirem",
+        "sensor_frontend": "Confirmar sinais de leitura e alimentacao dos sensores",
+        "sensor_analog": "Confirmar saidas analogicas, referencia e conexao aos ADCs",
+        "sensor_digital": "Confirmar barramentos digitais e pull-ups/pull-downs necessarios",
+        "uart_interface": "Confirmar cruzamento ou nao de TX/RX conforme o circuito",
+        "can_interface": "Confirmar topologia do barramento CAN e terminacao se aplicavel",
+        "can_transceiver": "Confirmar ligacao MCU <-> transceptor <-> CANH/CANL",
+        "rs485_interface": "Confirmar ligacao DI/RO/DE/RE e terminais A/B",
+        "usb_interface": "Confirmar VBUS, D+, D-, protecao e conector",
+        "interface_comms": "Confirmar sinais de interface e sentidos de dados",
+        "connectors_io": "Confirmar pinagem e rotulacao dos conectores",
+        "drivers_outputs": "Confirmar sentido do acionamento e componentes de protecao",
+        "clock_timing": "Confirmar frequencia e conexoes do clock/cristal",
+        "passive_support": "Confirmar valores e localizacao dos passivos auxiliares",
+        "misc_control": "Confirmar funcao e encaixe dos itens restantes no esquematico",
+    }
+
+    ordered_blocks = sorted(
+        functional_blocks,
+        key=lambda block: (
+            int(block.get("priority", block_priority(str(block.get("block", "misc_control"))))),
+            -int(block.get("avg_confidence_score", 0)),
+            -int(block.get("component_count", 0)),
+            str(block.get("block", "misc_control")),
+        ),
+    )
+
+    for block in ordered_blocks:
+        block_name = str(block.get("block", "misc_control"))
+        references = ", ".join(block.get("references", [])[:20])
+        priority = int(block.get("priority", block_priority(block_name)))
+        item = {
+            "order": step_number,
+            "priority": priority,
+            "block": block_name,
+            "component_count": block.get("component_count", 0),
+            "avg_confidence_score": block.get("avg_confidence_score", 0),
+            "confidence_label": block.get("confidence_label", "low"),
+            "mount_action": action_map.get(block_name, "Montar bloco e revisar componentes associados"),
+            "verification": verification_map.get(block_name, "Revisar ligacoes e coerencia do bloco no ISIS"),
+            "references": block.get("references", []),
+            "status": "pending",
+        }
+        checklist_items.append(item)
+        checklist_rows.append(
+            {
+                "order": str(step_number),
+                "priority": str(priority),
+                "block": block_name,
+                "component_count": str(block.get("component_count", 0)),
+                "avg_confidence_score": str(block.get("avg_confidence_score", 0)),
+                "confidence_label": str(block.get("confidence_label", "low")),
+                "mount_action": item["mount_action"],
+                "verification": item["verification"],
+                "references": references,
+                "status": "pending",
+            }
+        )
+        step_number += 1
+
+    return {
+        "items": checklist_items,
+        "rows": checklist_rows,
+    }
+
+
+def build_assisted_mounting_markdown(
+    project_name: str,
+    analysis: dict[str, Any],
+    source_pdf_relative_path: Optional[str],
+    generated_files: dict[str, str],
+    functional_blocks: list[dict[str, Any]],
+    block_checklist: list[dict[str, Any]],
+) -> str:
+    components = analysis.get("components", [])
+    signals = analysis.get("signal_candidates", [])
+    warnings = analysis.get("warnings", [])
+    top_signals = ", ".join(item.get("name", "") for item in signals[:12]) or "nenhum sinal identificado"
+
+    lines = [
+        f"# Montagem Assistida - {project_name}",
+        "",
+        "## Objetivo",
+        "",
+        "Usar a analise do PDF como base confiavel para montar o projeto no ISIS Proteus com revisao humana, sem tentar gerar um esquematico automaticamente e sem validar conexoes que o parser nao conseguiu confirmar.",
+        "",
+        "## Entradas",
+        "",
+        f"- PDF de origem: {source_pdf_relative_path or 'nao informado'}",
+        f"- Readiness da analise: {analysis.get('readiness', 'unknown')}",
+        f"- Componentes detectados: {analysis.get('components_count', 0)}",
+        f"- Sinais candidatos: {analysis.get('signal_candidates_count', 0)}",
+        f"- Arquivo BOM CSV: {generated_files['bom_csv']}",
+        f"- Arquivo de analise JSON: {generated_files['analysis_json']}",
+        f"- Arquivo de sinais CSV: {generated_files['signals_csv']}",
+        f"- Netlist draft JSON: {generated_files['netlist_json']}",
+        f"- Revisao de netlist CSV: {generated_files['netlist_review_csv']}",
+        f"- Resumo de blocos funcionais CSV: {generated_files['functional_blocks_csv']}",
+        f"- Checklist de montagem por bloco CSV: {generated_files['block_checklist_csv']}",
+        "",
+        "## Alertas",
+        "",
+    ]
+
+    if warnings:
+        lines.extend([f"- {warning}" for warning in warnings])
+    else:
+        lines.append("- Nenhum alerta relevante foi emitido pela analise inicial.")
+
+    lines.extend(
+        [
+            "",
+            "## Sequencia recomendada no Proteus",
+            "",
+            "1. Crie manualmente um novo projeto ISIS Proteus dentro desta pasta assistida ou em uma subpasta dedicada do mesmo projeto.",
+            "2. Abra o PDF original e o arquivo de analise JSON lado a lado para validar referencias e valores antes de inserir qualquer simbolo.",
+            "3. Consulte primeiro o resumo de blocos funcionais para montar o circuito por subsistemas: fonte, controle, interface e conectores.",
+            "4. Insira os passivos e discretos usando o BOM CSV como checklist; marque os itens revisados conforme forem colocados no ISIS.",
+            "5. Nomeie primeiro as redes principais e barramentos usando os sinais candidatos detectados: " + top_signals + ".",
+            "6. Use a netlist draft para priorizar quais componentes ja possuem alguma associacao com sinais e quais ainda estao sem conexao inferida.",
+            "7. Compare as evidencias por pagina do JSON quando houver ambiguidade de valor, encapsulamento ou familia do componente.",
+            "8. So depois de revisar simbolos e conexoes, salve o projeto e use o bridge atual para abrir o Proteus, importar firmware e simular.",
+            "",
+            "## Blocos funcionais inferidos",
+            "",
+        ]
+    )
+
+    if functional_blocks:
+        for block in functional_blocks:
+            lines.append(
+                f"- prioridade {block['priority']} | {block['block']} | {block['component_count']} componente(s) | score medio {block['avg_confidence_score']} | {block['confidence_label']}"
+            )
+    else:
+        lines.append("- Nenhum bloco funcional pode ser inferido com os dados atuais.")
+
+    lines.extend(
+        [
+            "",
+            "## Checklist por bloco funcional",
+            "",
+        ]
+    )
+
+    if block_checklist:
+        for item in block_checklist:
+            lines.append(
+                f"- Etapa {item['order']} (prioridade {item['priority']}): {item['block']} | {item['mount_action']} | verificar: {item['verification']}"
+            )
+    else:
+        lines.append("- Nenhum checklist por bloco foi gerado porque nao ha blocos funcionais inferidos.")
+
+    lines.extend(
+        [
+            "",
+            "## Critérios de aceite",
+            "",
+            "- Cada referencia do BOM CSV foi confirmada ou descartada manualmente.",
+            "- As alimentacoes e terras do circuito estao identificadas no ISIS com nomes coerentes.",
+            "- Os componentes ambiguos do JSON foram validados contra o PDF original.",
+            "- O projeto Proteus resultante pode ser salvo e reaberto normalmente antes de qualquer simulacao.",
+            "",
+            "## Componentes prioritarios",
+            "",
+        ]
+    )
+
+    if components:
+        for item in build_component_rows(components)[:30]:
+            value = item["candidate_value"] or "valor nao inferido"
+            lines.append(f"- {item['reference']} | {item['family']} | {value} | paginas {item['pages'] or '-'}")
+    else:
+        lines.append("- Nenhum componente detectado automaticamente. Revise o PDF e considere aplicar OCR antes da montagem.")
+
+    return "\n".join(lines) + "\n"
+
+
+def prepare_proteus_assisted_project(request: PrepareProteusAssistedProjectRequest) -> dict[str, Any]:
+    root = ensure_root_exists()
+    package = load_schematic_analysis_payload(request.analysis_relative_path, request.pdf_path, request.max_pages)
+    analysis = package["analysis"]
+    source_pdf_relative_path = package.get("source_pdf_relative_path")
+
+    project_dir = safe_relative_path(request.project_folder)
+    if project_dir.exists() and any(project_dir.iterdir()) and not request.overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A pasta de projeto assistido já existe e não está vazia: {project_dir}",
+        )
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    project_name = request.project_display_name or project_dir.name
+    analysis_json_path = project_dir / "schematic_analysis.json"
+    components_json_path = project_dir / "components_detected.json"
+    components_csv_path = project_dir / "components_bom.csv"
+    signals_json_path = project_dir / "signal_candidates.json"
+    signals_csv_path = project_dir / "signal_candidates.csv"
+    guide_md_path = project_dir / "MONTAGEM_ASSISTIDA_PROTEUS.md"
+    manifest_json_path = project_dir / "assisted_project_manifest.json"
+    netlist_json_path = project_dir / "draft_netlist.json"
+    netlist_review_csv_path = project_dir / "draft_netlist_review.csv"
+    netlist_nets_csv_path = project_dir / "draft_netlist_nets.csv"
+    functional_blocks_json_path = project_dir / "functional_blocks.json"
+    functional_blocks_csv_path = project_dir / "functional_blocks.csv"
+    block_checklist_json_path = project_dir / "block_mount_checklist.json"
+    block_checklist_csv_path = project_dir / "block_mount_checklist.csv"
+
+    components = analysis.get("components", [])
+    signals = analysis.get("signal_candidates", [])
+    draft_netlist = build_draft_netlist(analysis)
+    functional_blocks = build_functional_blocks_summary(draft_netlist["components"])
+    block_checklist = build_block_checklist(functional_blocks["blocks"])
+
+    analysis_json_path.write_text(json.dumps(analysis, indent=2, ensure_ascii=False), encoding="utf-8")
+    components_json_path.write_text(json.dumps(components, indent=2, ensure_ascii=False), encoding="utf-8")
+    signals_json_path.write_text(json.dumps(signals, indent=2, ensure_ascii=False), encoding="utf-8")
+    netlist_json_path.write_text(json.dumps(draft_netlist, indent=2, ensure_ascii=False), encoding="utf-8")
+    functional_blocks_json_path.write_text(json.dumps(functional_blocks["blocks"], indent=2, ensure_ascii=False), encoding="utf-8")
+    block_checklist_json_path.write_text(json.dumps(block_checklist["items"], indent=2, ensure_ascii=False), encoding="utf-8")
+    write_csv_rows(components_csv_path, build_component_rows(components))
+    write_csv_rows(signals_csv_path, build_signal_rows(signals))
+    write_csv_rows(netlist_review_csv_path, draft_netlist["review_rows"])
+    write_csv_rows(netlist_nets_csv_path, draft_netlist["net_rows"])
+    write_csv_rows(functional_blocks_csv_path, functional_blocks["rows"])
+    write_csv_rows(block_checklist_csv_path, block_checklist["rows"])
+
+    copied_pdf_relative_path = None
+    if request.copy_source_pdf and source_pdf_relative_path:
+        source_pdf_path = safe_relative_path(source_pdf_relative_path)
+        if source_pdf_path.exists() and source_pdf_path.is_file():
+            copied_pdf_name = source_pdf_path.name
+            copied_pdf_path = project_dir / copied_pdf_name
+            if source_pdf_path.resolve() != copied_pdf_path.resolve():
+                shutil.copy2(source_pdf_path, copied_pdf_path)
+            copied_pdf_relative_path = str(copied_pdf_path.relative_to(root))
+
+    generated_files = {
+        "analysis_json": str(analysis_json_path.relative_to(root)),
+        "components_json": str(components_json_path.relative_to(root)),
+        "bom_csv": str(components_csv_path.relative_to(root)),
+        "signals_json": str(signals_json_path.relative_to(root)),
+        "signals_csv": str(signals_csv_path.relative_to(root)),
+        "netlist_json": str(netlist_json_path.relative_to(root)),
+        "netlist_review_csv": str(netlist_review_csv_path.relative_to(root)),
+        "netlist_nets_csv": str(netlist_nets_csv_path.relative_to(root)),
+        "functional_blocks_json": str(functional_blocks_json_path.relative_to(root)),
+        "functional_blocks_csv": str(functional_blocks_csv_path.relative_to(root)),
+        "block_checklist_json": str(block_checklist_json_path.relative_to(root)),
+        "block_checklist_csv": str(block_checklist_csv_path.relative_to(root)),
+    }
+    guide_md_path.write_text(
+        build_assisted_mounting_markdown(
+            project_name,
+            analysis,
+            copied_pdf_relative_path or source_pdf_relative_path,
+            generated_files,
+            functional_blocks["blocks"],
+            block_checklist["items"],
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = {
+        "project_display_name": project_name,
+        "project_folder": str(project_dir.relative_to(root)),
+        "analysis_source": {
+            "analysis_relative_path": package.get("source_analysis_relative_path"),
+            "pdf_relative_path": source_pdf_relative_path,
+            "copied_pdf_relative_path": copied_pdf_relative_path,
+        },
+        "readiness": analysis.get("readiness"),
+        "components_count": analysis.get("components_count", 0),
+        "signal_candidates_count": analysis.get("signal_candidates_count", 0),
+        "generated_files": {
+            **generated_files,
+            "guide_markdown": str(guide_md_path.relative_to(root)),
+        },
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    manifest_json_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return {
+        "ok": True,
+        "project_folder": str(project_dir.relative_to(root)),
+        "project_display_name": project_name,
+        "readiness": analysis.get("readiness"),
+        "components_count": analysis.get("components_count", 0),
+        "signal_candidates_count": analysis.get("signal_candidates_count", 0),
+        "generated_files": {
+            **manifest["generated_files"],
+            "manifest_json": str(manifest_json_path.relative_to(root)),
+        },
+        "copied_pdf_relative_path": copied_pdf_relative_path,
+        "next_step": "Abra MONTAGEM_ASSISTIDA_PROTEUS.md e monte o projeto ISIS manualmente usando o BOM e os sinais detectados.",
+    }
 
 
 def searchable_text_extensions() -> set[str]:
@@ -1276,6 +2276,16 @@ def automation_run(request: AutomationRunRequest) -> dict[str, Any]:
     return execute_automation_workflow(request)
 
 
+@app.post("/pdf/analyze-schematic")
+def pdf_analyze_schematic(request: AnalyzeSchematicPdfRequest) -> dict[str, Any]:
+    return analyze_schematic_pdf(request)
+
+
+@app.post("/proteus/prepare-assisted-project")
+def proteus_prepare_assisted_project(request: PrepareProteusAssistedProjectRequest) -> dict[str, Any]:
+    return prepare_proteus_assisted_project(request)
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -1283,6 +2293,8 @@ def assistant_capabilities() -> dict[str, Any]:
         "service": app.title,
         "capabilities": {
             "proteus": True,
+            "schematic_pdf_analysis": True,
+            "proteus_assisted_project_packaging": True,
             "workspace_files": True,
             "workspace_search": True,
             "workspace_management": True,

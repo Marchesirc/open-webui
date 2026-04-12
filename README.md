@@ -76,6 +76,107 @@ Para voltar ao modo local completo com shell e escrita habilitados:
 powershell -ExecutionPolicy Bypass -File D:\Projetos\OpenWebUI_Proteus\ativar_modo_profissional_local.ps1 -OpenWebUIRoot D:\open-webui
 ```
 
+## Analise confiavel de schematic PDF
+
+O bridge agora suporta uma etapa confiavel de pre-processamento para PDF de esquematico: extrai texto do PDF, identifica referencias de componentes e sinais provaveis, e gera um JSON intermediario para revisao humana antes da montagem no ISIS Proteus.
+
+Limites importantes:
+
+- nao cria automaticamente o esquematico completo no Proteus
+- depende de PDF com texto extraivel; scans/imagens podem exigir OCR antes
+- o resultado deve ser revisado antes de virar BOM, netlist ou projeto ISIS
+
+Endpoint OpenAPI:
+
+```text
+POST /pdf/analyze-schematic
+```
+
+Exemplo de payload:
+
+```json
+{
+  "pdf_path": "MeuProjeto/schematic.pdf",
+  "max_pages": 12,
+  "persist_output": true
+}
+```
+
+Saida esperada:
+
+- JSON com componentes detectados por referencia
+- sinais provaveis como GND, VCC, SDA, SCL, TX, RX
+- `readiness` para indicar se o PDF serve como base razoavel para fluxo assistido
+- arquivo `.schematic.analysis.json` salvo ao lado do PDF, quando `persist_output=true`
+
+## Montagem assistida para o Proteus
+
+O bridge agora consegue transformar a analise do PDF em um pacote assistido de projeto dentro de `Proteus_Projects`, com arquivos prontos para montagem manual e revisao tecnica no ISIS Proteus.
+
+Endpoint OpenAPI:
+
+```text
+POST /proteus/prepare-assisted-project
+```
+
+Payload minimo com PDF:
+
+```json
+{
+  "project_folder": "MeuProjeto_Assistido",
+  "pdf_path": "MeuProjeto/schematic.pdf",
+  "overwrite": true,
+  "copy_source_pdf": true
+}
+```
+
+Payload alternativo com JSON ja analisado:
+
+```json
+{
+  "project_folder": "MeuProjeto_Assistido",
+  "analysis_relative_path": "MeuProjeto/schematic.schematic.analysis.json",
+  "overwrite": true
+}
+```
+
+Arquivos gerados no pacote assistido:
+
+- `schematic_analysis.json`
+- `components_detected.json`
+- `components_bom.csv`
+- `signal_candidates.json`
+- `signal_candidates.csv`
+- `draft_netlist.json`
+- `draft_netlist_review.csv`
+- `draft_netlist_nets.csv`
+- `functional_blocks.json`
+- `functional_blocks.csv`
+- `block_mount_checklist.json`
+- `block_mount_checklist.csv`
+- `MONTAGEM_ASSISTIDA_PROTEUS.md`
+- `assisted_project_manifest.json`
+
+Uso recomendado:
+
+- gere o pacote assistido
+- abra `MONTAGEM_ASSISTIDA_PROTEUS.md`
+- consulte `functional_blocks.csv` para montar primeiro por blocos como fonte, controle, interface e conectores
+- siga `block_mount_checklist.csv` como ordem operacional de montagem por prioridade tecnica e confianca
+- revise `draft_netlist_review.csv` e `draft_netlist_nets.csv` para validar conexoes inferidas
+- use `confidence` e `confidence_score` para priorizar primeiro os componentes e redes com melhor evidência
+- monte o projeto no ISIS com base no BOM CSV e nos sinais detectados
+- depois use o bridge atual para abrir projeto, importar firmware e simular
+
+Blocos funcionais atualmente inferidos com regras especificas:
+
+- `power_supply` e `power_regulation`
+- `mcu_control`
+- `display_ui`, `display_i2c` e `display_spi`
+- `sensor_frontend`, `sensor_analog` e `sensor_digital`
+- `uart_interface`, `can_interface`, `can_transceiver`, `rs485_interface`, `usb_interface` e `interface_comms`
+- `connectors_io`, `drivers_outputs`, `clock_timing`, `passive_support` e `misc_control`
+
 ## Documentacao complementar
 
 - RESUMO_EXECUTIVO_OpenWebUI_Professional.md
