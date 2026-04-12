@@ -41,6 +41,19 @@ powershell -ExecutionPolicy Bypass -File D:\Projetos\OpenWebUI_Proteus\manutenca
 powershell -ExecutionPolicy Bypass -File D:\Projetos\OpenWebUI_Proteus\validate_openwebui_professional_stack.ps1 -OpenWebUIRoot D:\open-webui
 ```
 
+### Pipeline pass4 producao (Acer)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\Projetos\OpenWebUI_Proteus\executar_pipeline_pass4_producao.ps1
+```
+
+Esse script usa parametros fixos de producao para o fluxo Acer e executa, em ordem:
+
+- extracao de candidatos
+- recorte focado pass4
+- analise do PDF focado
+- pacote assistido para montagem no ISIS
+
 ### Geracao de relatorio
 
 ```powershell

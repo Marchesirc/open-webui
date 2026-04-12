@@ -4,7 +4,7 @@
 
 - repositorio Git local inicializado
 - branch atual preparada para publicacao
-- tags locais criadas: v1.0.0, v1.0.1
+- tags locais criadas: v1.0.0, v1.0.1, v1.0.2
 
 ## 1. Adicionar remoto
 
@@ -29,7 +29,7 @@ git push -u origin main
 ## 3. Publicar tag da release
 
 ```powershell
-git push origin v1.0.1
+git push origin v1.0.2
 ```
 
 ## 4. Publicar todas as tags
@@ -42,7 +42,7 @@ git push --tags
 
 Use o conteudo de:
 
-- RELEASE_NOTES_v1.0.1.md
+- RELEASE_NOTES_v1.0.2.md
 
 ## Observacao
 
