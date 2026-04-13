@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import glob
+import io
 import json
 import os
 import re
@@ -530,6 +531,16 @@ class AssistantOperationsEscalationRequest(BaseModel):
 class AssistantCheckpointDedupRequest(BaseModel):
     apply_changes: bool = False
     limit: int = Field(default=5000, ge=100, le=50000)
+
+
+class AssistantExecutiveReportRequest(BaseModel):
+    report_format: str = Field(default="markdown", description="json|csv|markdown")
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    persist: bool = True
+    output_name: Optional[str] = None
 
 
 def project_root() -> Path:
@@ -2813,6 +2824,7 @@ _TASK_CONTRACTS: dict[str, dict[str, Any]] = {
 _MEMORY_DIR = BASE_DIR / "assistant_memory"
 _MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
 _CHECKPOINT_FILE = _MEMORY_DIR / "checkpoints.jsonl"
+_REPORTS_DIR = BASE_DIR / "assistant_reports"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -3437,6 +3449,158 @@ def _phase7_build_executive_dashboard(
             "kept_count": dedup["kept_count"],
             "duplicate_count": dedup["duplicate_count"],
         },
+    }
+
+
+def _ensure_reports_storage() -> None:
+    _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _phase8_recommendations(executive: dict[str, Any]) -> list[str]:
+    summary = executive.get("summary") or {}
+    operations = executive.get("operations") or {}
+    alerts = list(executive.get("alerts") or [])
+
+    recommendations: list[str] = []
+    if int(summary.get("open_risk", 0)) > 0:
+        recommendations.append("Priorize revisao manual dos itens de risco alto antes de novas automacoes sensiveis.")
+    if int(summary.get("open_compliance", 0)) > 0:
+        recommendations.append("Corrija contratos e secoes obrigatorias ausentes para reduzir reincidencia na fila de compliance.")
+    if int(summary.get("open_sla", 0)) > 0:
+        recommendations.append("Ataque primeiro os itens fora do SLA para evitar envelhecimento operacional adicional.")
+    if int((executive.get("deduplication") or {}).get("duplicate_count", 0)) > 0:
+        recommendations.append("Aplique deduplicacao do historico antes de consolidar relatorios executivos oficiais.")
+    if not recommendations and alerts:
+        recommendations.append("Ambiente operacional estavel; mantenha monitoramento e revise apenas os alertas ativos.")
+    if not recommendations:
+        recommendations.append("Nenhuma acao imediata identificada; siga monitorando filas e tendencias historicas.")
+    if int((operations.get("counts") or {}).get("risk", 0)) > int((operations.get("counts") or {}).get("compliance", 0)):
+        recommendations.append("Risco domina o backlog atual; concentre aprovacoes e controles em tarefas de impacto alto.")
+    return recommendations[:5]
+
+
+def _phase8_render_markdown_report(payload: dict[str, Any]) -> str:
+    executive = payload.get("executive_dashboard") or {}
+    summary = executive.get("summary") or {}
+    operations = executive.get("operations") or {}
+    timeline = list(executive.get("timeline") or [])
+    recommendations = list(payload.get("recommendations") or [])
+    alerts = list(executive.get("alerts") or [])
+
+    lines = [
+        "# Relatorio Executivo Operacional",
+        "",
+        f"Janela analisada: {executive.get('window_days', 0)} dia(s)",
+        "",
+        "## Resumo",
+        "",
+        f"- Risco aberto: {summary.get('open_risk', 0)}",
+        f"- SLA aberto: {summary.get('open_sla', 0)}",
+        f"- Compliance aberto: {summary.get('open_compliance', 0)}",
+        f"- Registros rastreados: {summary.get('tracked_records', 0)}",
+        f"- Eventos deduplicados: {summary.get('deduplicated_events', 0)}",
+        f"- Duplicatas removiveis: {summary.get('duplicate_events_removed', 0)}",
+        "",
+        "## Alertas",
+        "",
+    ]
+    for alert in alerts or ["Nenhum alerta ativo"]:
+        lines.append(f"- {alert}")
+
+    lines.extend(["", "## Recomendacoes", ""])
+    for item in recommendations:
+        lines.append(f"- {item}")
+
+    lines.extend(["", "## Filas", ""])
+    counts = operations.get("counts") or {}
+    lines.append(f"- risk: {counts.get('risk', 0)}")
+    lines.append(f"- sla: {counts.get('sla', 0)}")
+    lines.append(f"- compliance: {counts.get('compliance', 0)}")
+
+    lines.extend(["", "## Tendencias", "", "| Data | Risk | SLA | Compliance | Events |", "|---|---:|---:|---:|---:|"])
+    for row in timeline:
+        lines.append(
+            f"| {row.get('date', '')} | {row.get('risk', 0)} | {row.get('sla', 0)} | {row.get('compliance', 0)} | {row.get('events', 0)} |"
+        )
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _phase8_render_csv_report(payload: dict[str, Any]) -> str:
+    executive = payload.get("executive_dashboard") or {}
+    summary = executive.get("summary") or {}
+    operations = executive.get("operations") or {}
+    timeline = list(executive.get("timeline") or [])
+    recommendations = list(payload.get("recommendations") or [])
+    alerts = list(executive.get("alerts") or [])
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["section", "key", "value", "extra"])
+    for key, value in summary.items():
+        writer.writerow(["summary", key, value, ""])
+    for key, value in (operations.get("counts") or {}).items():
+        writer.writerow(["queue_counts", key, value, ""])
+    for item in alerts:
+        writer.writerow(["alerts", "alert", item, ""])
+    for item in recommendations:
+        writer.writerow(["recommendations", "item", item, ""])
+    for row in timeline:
+        writer.writerow(["timeline", row.get("date", ""), row.get("events", 0), json.dumps(row, ensure_ascii=False)])
+    return buffer.getvalue()
+
+
+def _phase8_render_report_content(payload: dict[str, Any], report_format: str) -> str:
+    normalized = report_format.strip().lower()
+    if normalized == "json":
+        return json.dumps(payload, indent=2, ensure_ascii=False)
+    if normalized == "csv":
+        return _phase8_render_csv_report(payload)
+    if normalized == "markdown":
+        return _phase8_render_markdown_report(payload)
+    raise HTTPException(status_code=400, detail="report_format invalido: use json, csv ou markdown")
+
+
+def _phase8_export_executive_report(
+    report_format: str,
+    days: int,
+    warning_after_hours: int,
+    critical_after_hours: int,
+    limit: int,
+    persist: bool,
+    output_name: Optional[str] = None,
+) -> dict[str, Any]:
+    executive = _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)
+    payload = {
+        "phase": "phase-8-executive-report",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "report_format": report_format.strip().lower(),
+        "executive_dashboard": executive,
+        "recommendations": _phase8_recommendations(executive),
+    }
+    content = _phase8_render_report_content(payload, payload["report_format"])
+
+    file_path = None
+    if persist:
+        _ensure_reports_storage()
+        extension_map = {"json": "json", "csv": "csv", "markdown": "md"}
+        extension = extension_map[payload["report_format"]]
+        base_name = (output_name or f"executive_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}").strip()
+        safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", base_name).strip("._") or "executive_report"
+        if not safe_name.lower().endswith(f".{extension}"):
+            safe_name = f"{safe_name}.{extension}"
+        target = _REPORTS_DIR / safe_name
+        target.write_text(content, encoding="utf-8")
+        file_path = str(target)
+
+    return {
+        "phase": "phase-8-executive-report",
+        "format": payload["report_format"],
+        "persisted": persist,
+        "file_path": file_path,
+        "content": content,
+        "recommendations": payload["recommendations"],
+        "summary": executive.get("summary", {}),
     }
 
 
@@ -4201,6 +4365,22 @@ def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) 
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
 
 
+@app.post("/assistant/executive/report")
+def assistant_executive_report(request: AssistantExecutiveReportRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    result = _phase8_export_executive_report(
+        report_format=request.report_format,
+        days=request.days,
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+        persist=bool(request.persist),
+        output_name=request.output_name,
+    )
+    return {"ok": True, "result": result}
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -4233,6 +4413,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase6_operations_escalation": True,
             "assistant_phase7_executive_dashboard": True,
             "assistant_phase7_deduplication": True,
+            "assistant_phase8_executive_report": True,
         },
         "projects_root": str(project_root()),
     }

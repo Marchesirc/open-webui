@@ -91,6 +91,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_operations_escalate",
     "assistant_executive_dashboard",
     "assistant_checkpoints_deduplicate",
+    "assistant_executive_report",
     "health",
     "workspace_list",
     "workspace_search",
@@ -226,6 +227,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 7", "painel executivo"],
         "content": "Execute a Fase 7: consolide metricas historicas por fila, gere tendencias temporais, identifique eventos duplicados no historico e exponha um painel executivo objetivo para priorizacao."
+    },
+    {
+        "title": ["Fase 8", "relatorio exportavel"],
+        "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
     }
 ]
 
@@ -313,6 +318,12 @@ FIXED_PROMPTS = [
         "name": "Fase 7 Painel Executivo",
         "tags": ["fase7", "executivo", "tendencias"],
         "content": "Atue no modo Fase 7. Gere um painel executivo com metricas historicas por fila, tendencias por periodo, identificacao de eventos duplicados e recomendacoes curtas de priorizacao operacional."
+    },
+    {
+        "command": "fase8-relatorio-executivo",
+        "name": "Fase 8 Relatorio Executivo Exportavel",
+        "tags": ["fase8", "relatorio", "exportacao"],
+        "content": "Atue no modo Fase 8. Gere um relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, alertas ativos, tendencias por fila e recomendacoes automaticas para a proxima acao."
     }
 ]
 

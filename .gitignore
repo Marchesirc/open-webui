@@ -10,3 +10,4 @@ _Logs/
 *.user
 proteus_bridge_config.before-enterprise-safe.backup.json
 assistant_memory/
+assistant_reports/

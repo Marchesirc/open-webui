@@ -138,5 +138,15 @@
       "tendencias"
     ],
     "content": "Atue no modo Fase 7. Gere um painel executivo com metricas historicas por fila, tendencias por periodo, identificacao de eventos duplicados e recomendacoes curtas de priorizacao operacional."
+  },
+  {
+    "command": "fase8-relatorio-executivo",
+    "name": "Fase 8 Relatorio Executivo Exportavel",
+    "tags": [
+      "fase8",
+      "relatorio",
+      "exportacao"
+    ],
+    "content": "Atue no modo Fase 8. Gere um relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, alertas ativos, tendencias por fila e recomendacoes automaticas para a proxima acao."
   }
 ]

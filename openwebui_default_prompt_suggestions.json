@@ -96,5 +96,12 @@
       "painel executivo"
     ],
     "content": "Execute a Fase 7: consolide metricas historicas por fila, gere tendencias temporais, identifique eventos duplicados no historico e exponha um painel executivo objetivo para priorizacao."
+  },
+  {
+    "title": [
+      "Fase 8",
+      "relatorio exportavel"
+    ],
+    "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
   }
 ]
