@@ -168,5 +168,15 @@
       "automacao"
     ],
     "content": "Atue no modo Fase 10. Configure agendas horarias ou diarias de relatorios executivos por ambiente, acompanhe a proxima execucao, rode jobs vencidos e mantenha retencao automatica coerente com a politica operacional."
+  },
+  {
+    "command": "fase11-multi-tenant-relatorios",
+    "name": "Fase 11 Multi-Tenant e Projetos",
+    "tags": [
+      "fase11",
+      "tenant",
+      "projetos"
+    ],
+    "content": "Atue no modo Fase 11. Separe relatorios, snapshots e agendas por tenant, projeto e ambiente, consulte filtros compostos antes de agir e mantenha o historico operacional isolado por escopo."
   }
 ]

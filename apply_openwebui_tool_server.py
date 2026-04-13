@@ -245,6 +245,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 10", "agendamento automatico"],
         "content": "Execute a Fase 10: configure agendas horarias ou diarias de snapshots por ambiente, calcule proxima execucao, dispare jobs vencidos automaticamente e aplique retencao conforme a politica do ambiente."
+    },
+    {
+        "title": ["Fase 11", "multi-tenant e projetos"],
+        "content": "Execute a Fase 11: segregue relatorios, snapshots e agendas por tenant, projeto e ambiente, mantenha filtros compostos consistentes e preserve compatibilidade com operacao existente."
     }
 ]
 
@@ -350,6 +354,12 @@ FIXED_PROMPTS = [
         "name": "Fase 10 Agendamento de Relatorios",
         "tags": ["fase10", "agendamento", "automacao"],
         "content": "Atue no modo Fase 10. Configure agendas horarias ou diarias de relatorios executivos por ambiente, acompanhe a proxima execucao, rode jobs vencidos e mantenha retencao automatica coerente com a politica operacional."
+    },
+    {
+        "command": "fase11-multi-tenant-relatorios",
+        "name": "Fase 11 Multi-Tenant e Projetos",
+        "tags": ["fase11", "tenant", "projetos"],
+        "content": "Atue no modo Fase 11. Separe relatorios, snapshots e agendas por tenant, projeto e ambiente, consulte filtros compostos antes de agir e mantenha o historico operacional isolado por escopo."
     }
 ]
 

@@ -222,6 +222,13 @@
         "agendamento automatico"
       ],
       "content": "Execute a Fase 10: configure agendas horarias ou diarias de snapshots por ambiente, calcule proxima execucao, dispare jobs vencidos automaticamente e aplique retencao conforme a politica do ambiente."
+    },
+    {
+      "title": [
+        "Fase 11",
+        "multi-tenant e projetos"
+      ],
+      "content": "Execute a Fase 11: segregue relatorios, snapshots e agendas por tenant, projeto e ambiente, mantenha filtros compostos consistentes e preserve compatibilidade com operacao existente."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -345,6 +352,13 @@
           "agendamento automatico"
         ],
         "content": "Execute a Fase 10: configure agendas horarias ou diarias de snapshots por ambiente, calcule proxima execucao, dispare jobs vencidos automaticamente e aplique retencao conforme a politica do ambiente."
+      },
+      {
+        "title": [
+          "Fase 11",
+          "multi-tenant e projetos"
+        ],
+        "content": "Execute a Fase 11: segregue relatorios, snapshots e agendas por tenant, projeto e ambiente, mantenha filtros compostos consistentes e preserve compatibilidade com operacao existente."
       }
     ],
     "default_locale": "pt-BR",

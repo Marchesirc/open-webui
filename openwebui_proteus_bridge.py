@@ -24,6 +24,7 @@ import uvicorn
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -552,6 +553,9 @@ class AssistantExecutiveReportRequest(BaseModel):
     limit: int = Field(default=200, ge=10, le=2000)
     persist: bool = True
     output_name: Optional[str] = None
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    environment: str = Field(default="default", min_length=1, max_length=80)
 
 
 class AssistantExecutiveSnapshotRequest(BaseModel):
@@ -562,17 +566,23 @@ class AssistantExecutiveSnapshotRequest(BaseModel):
     limit: int = Field(default=200, ge=10, le=2000)
     snapshot_name: Optional[str] = None
     environment: str = Field(default="manual")
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
 
 
 class AssistantReportCleanupRequest(BaseModel):
     retention_days: int = Field(default=30, ge=1, le=3650)
     apply_changes: bool = False
     environment: Optional[str] = None
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
 
 
 class AssistantReportScheduleRequest(BaseModel):
     schedule_id: str = Field(..., min_length=3, max_length=80)
     environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
     enabled: bool = True
     cadence: str = Field(default="daily", description="hourly|daily")
     interval_hours: int = Field(default=24, ge=1, le=168)
@@ -588,6 +598,8 @@ class AssistantReportScheduleRequest(BaseModel):
 
 class AssistantReportScheduleRunRequest(BaseModel):
     environment: Optional[str] = None
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
     force: bool = False
     limit: int = Field(default=10, ge=1, le=100)
 
@@ -2874,6 +2886,7 @@ _MEMORY_DIR = BASE_DIR / "assistant_memory"
 _MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
 _CHECKPOINT_FILE = _MEMORY_DIR / "checkpoints.jsonl"
 _REPORTS_DIR = BASE_DIR / "assistant_reports"
+_REPORTS_SCOPED_DIR = _REPORTS_DIR / "scoped"
 _REPORTS_INDEX_FILE = _REPORTS_DIR / "index.json"
 _REPORTS_SCHEDULES_FILE = _REPORTS_DIR / "schedules.json"
 
@@ -2922,6 +2935,8 @@ _PHASE6_QUEUE_POLICIES: dict[str, dict[str, Any]] = {
 _PHASE7_DEFAULT_DAYS = 7
 _PHASE9_DEFAULT_SNAPSHOT_FORMATS = ["markdown", "csv", "json"]
 _PHASE10_DEFAULT_ENVIRONMENT = "default"
+_PHASE11_DEFAULT_TENANT_ID = "shared"
+_PHASE11_DEFAULT_PROJECT_SCOPE = "general"
 
 
 def _tokenize_text(text: str) -> set[str]:
@@ -3545,6 +3560,94 @@ def _save_report_schedules(entries: list[dict[str, Any]]) -> None:
     _REPORTS_SCHEDULES_FILE.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _phase11_normalize_scope_value(value: Optional[str], default: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value or "").strip()).strip("._").lower()
+    return normalized or default
+
+
+def _phase11_scope_context(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, str]:
+    return {
+        "environment": _phase11_normalize_scope_value(environment, _PHASE10_DEFAULT_ENVIRONMENT),
+        "tenant_id": _phase11_normalize_scope_value(tenant_id, _PHASE11_DEFAULT_TENANT_ID),
+        "project_scope": _phase11_normalize_scope_value(project_scope, _PHASE11_DEFAULT_PROJECT_SCOPE),
+    }
+
+
+def _phase11_entry_scope(entry: dict[str, Any]) -> dict[str, str]:
+    return _phase11_scope_context(
+        environment=str(entry.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+        tenant_id=str(entry.get("tenant_id") or _PHASE11_DEFAULT_TENANT_ID),
+        project_scope=str(entry.get("project_scope") or _PHASE11_DEFAULT_PROJECT_SCOPE),
+    )
+
+
+def _phase11_matches_scope(
+    entry: dict[str, Any],
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> bool:
+    entry_scope = _phase11_entry_scope(entry)
+    requested_environment = _phase11_normalize_scope_value(environment, "") if environment is not None else None
+    requested_tenant = _phase11_normalize_scope_value(tenant_id, "") if tenant_id is not None else None
+    requested_project = _phase11_normalize_scope_value(project_scope, "") if project_scope is not None else None
+    if requested_environment is not None and entry_scope["environment"] != requested_environment:
+        return False
+    if requested_tenant is not None and entry_scope["tenant_id"] != requested_tenant:
+        return False
+    if requested_project is not None and entry_scope["project_scope"] != requested_project:
+        return False
+    return True
+
+
+def _phase11_scope_dir(environment: str, tenant_id: str, project_scope: str) -> Path:
+    scope = _phase11_scope_context(environment=environment, tenant_id=tenant_id, project_scope=project_scope)
+    return _REPORTS_SCOPED_DIR / scope["tenant_id"] / scope["project_scope"] / scope["environment"]
+
+
+def _phase11_exports_dir(environment: str, tenant_id: str, project_scope: str) -> Path:
+    target = _phase11_scope_dir(environment, tenant_id, project_scope) / "exports"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _phase11_snapshot_dir(snapshot_id: str, environment: str, tenant_id: str, project_scope: str) -> Path:
+    target = _phase11_scope_dir(environment, tenant_id, project_scope) / "snapshots" / snapshot_id
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _phase11_schedule_identity(entry: dict[str, Any]) -> tuple[str, str, str, str]:
+    scope = _phase11_entry_scope(entry)
+    return (
+        str(entry.get("schedule_id") or "").strip(),
+        scope["tenant_id"],
+        scope["project_scope"],
+        scope["environment"],
+    )
+
+
+def _phase11_resolve_snapshot_dir(entry: dict[str, Any]) -> Optional[Path]:
+    snapshot_dir = str(entry.get("snapshot_dir") or "").strip()
+    if snapshot_dir:
+        return Path(snapshot_dir)
+    snapshot_id = str(entry.get("snapshot_id") or "").strip()
+    if not snapshot_id:
+        return None
+    scope = _phase11_entry_scope(entry)
+    scoped_candidate = _phase11_scope_dir(scope["environment"], scope["tenant_id"], scope["project_scope"]) / "snapshots" / snapshot_id
+    if scoped_candidate.exists():
+        return scoped_candidate
+    legacy_candidate = _REPORTS_DIR / snapshot_id
+    if legacy_candidate.exists():
+        return legacy_candidate
+    return scoped_candidate
+
+
 def _phase8_recommendations(executive: dict[str, Any]) -> list[str]:
     summary = executive.get("summary") or {}
     operations = executive.get("operations") or {}
@@ -3684,9 +3787,13 @@ def _phase8_export_executive_report(
     limit: int,
     persist: bool,
     output_name: Optional[str] = None,
+    environment: str = _PHASE10_DEFAULT_ENVIRONMENT,
+    tenant_id: str = _PHASE11_DEFAULT_TENANT_ID,
+    project_scope: str = _PHASE11_DEFAULT_PROJECT_SCOPE,
 ) -> dict[str, Any]:
     payload = _phase8_build_report_payload(days, warning_after_hours, critical_after_hours, limit, report_format)
     content = _phase8_render_report_content(payload, payload["report_format"])
+    scope = _phase11_scope_context(environment=environment, tenant_id=tenant_id, project_scope=project_scope)
 
     file_path = None
     if persist:
@@ -3694,7 +3801,7 @@ def _phase8_export_executive_report(
         extension = _phase8_report_extension(payload["report_format"])
         base_name = (output_name or f"executive_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}").strip()
         safe_name = _phase8_safe_report_name(base_name, extension)
-        target = _REPORTS_DIR / safe_name
+        target = _phase11_exports_dir(scope["environment"], scope["tenant_id"], scope["project_scope"]) / safe_name
         target.write_text(content, encoding="utf-8")
         file_path = str(target)
 
@@ -3703,6 +3810,7 @@ def _phase8_export_executive_report(
         "format": payload["report_format"],
         "persisted": persist,
         "file_path": file_path,
+        "scope": scope,
         "content": content,
         "recommendations": payload["recommendations"],
         "summary": (payload.get("executive_dashboard") or {}).get("summary", {}),
@@ -3717,6 +3825,8 @@ def _phase9_publish_snapshot(
     limit: int,
     snapshot_name: Optional[str] = None,
     environment: str = _PHASE10_DEFAULT_ENVIRONMENT,
+    tenant_id: str = _PHASE11_DEFAULT_TENANT_ID,
+    project_scope: str = _PHASE11_DEFAULT_PROJECT_SCOPE,
     schedule_id: Optional[str] = None,
 ) -> dict[str, Any]:
     normalized_formats = []
@@ -3730,8 +3840,8 @@ def _phase9_publish_snapshot(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     snapshot_id = re.sub(r"[^a-zA-Z0-9._-]+", "_", (snapshot_name or f"snapshot_{timestamp}").strip()).strip("._") or f"snapshot_{timestamp}"
     _ensure_reports_storage()
-    snapshot_dir = _REPORTS_DIR / snapshot_id
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    scope = _phase11_scope_context(environment=environment, tenant_id=tenant_id, project_scope=project_scope)
+    snapshot_dir = _phase11_snapshot_dir(snapshot_id, scope["environment"], scope["tenant_id"], scope["project_scope"])
 
     exported_files: list[dict[str, Any]] = []
     for report_format in normalized_formats:
@@ -3752,16 +3862,31 @@ def _phase9_publish_snapshot(
     manifest = {
         "snapshot_id": snapshot_id,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "environment": (environment or _PHASE10_DEFAULT_ENVIRONMENT).strip() or _PHASE10_DEFAULT_ENVIRONMENT,
+        "environment": scope["environment"],
+        "tenant_id": scope["tenant_id"],
+        "project_scope": scope["project_scope"],
         "schedule_id": (schedule_id or "").strip() or None,
         "window_days": days,
         "formats": normalized_formats,
+        "snapshot_dir": str(snapshot_dir),
         "files": exported_files,
     }
     (snapshot_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     index_entries = _load_reports_index()
-    index_entries = [entry for entry in index_entries if str(entry.get("snapshot_id") or "") != snapshot_id]
+    index_entries = [
+        entry
+        for entry in index_entries
+        if not (
+            str(entry.get("snapshot_id") or "") == snapshot_id
+            and _phase11_matches_scope(
+                entry,
+                environment=scope["environment"],
+                tenant_id=scope["tenant_id"],
+                project_scope=scope["project_scope"],
+            )
+        )
+    ]
     index_entries.append(manifest)
     index_entries.sort(key=lambda entry: str(entry.get("generated_at") or ""), reverse=True)
     _save_reports_index(index_entries)
@@ -3773,49 +3898,78 @@ def _phase9_publish_snapshot(
     }
 
 
-def _phase9_list_snapshots(limit: int = 20, environment: Optional[str] = None) -> dict[str, Any]:
+def _phase9_list_snapshots(
+    limit: int = 20,
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, Any]:
     entries = _load_reports_index()
     normalized_environment = (environment or "").strip().lower()
-    if normalized_environment:
-        entries = [entry for entry in entries if str(entry.get("environment") or "").strip().lower() == normalized_environment]
+    normalized_tenant = (tenant_id or "").strip().lower()
+    normalized_project = (project_scope or "").strip().lower()
+    entries = [
+        entry
+        for entry in entries
+        if _phase11_matches_scope(
+            entry,
+            environment=normalized_environment or None,
+            tenant_id=normalized_tenant or None,
+            project_scope=normalized_project or None,
+        )
+    ]
     entries.sort(key=lambda entry: str(entry.get("generated_at") or ""), reverse=True)
     return {
         "phase": "phase-9-report-index",
         "environment": normalized_environment or None,
+        "tenant_id": normalized_tenant or None,
+        "project_scope": normalized_project or None,
         "count": min(len(entries), limit),
         "items": entries[:limit],
     }
 
 
-def _phase9_cleanup_snapshots(retention_days: int, apply_changes: bool, environment: Optional[str] = None) -> dict[str, Any]:
+def _phase9_cleanup_snapshots(
+    retention_days: int,
+    apply_changes: bool,
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, Any]:
     entries = _load_reports_index()
     cutoff = datetime.now() - timedelta(days=retention_days)
     kept_entries: list[dict[str, Any]] = []
     removed_entries: list[dict[str, Any]] = []
     normalized_environment = (environment or "").strip().lower()
+    normalized_tenant = (tenant_id or "").strip().lower()
+    normalized_project = (project_scope or "").strip().lower()
 
     for entry in entries:
         ts = _parse_checkpoint_timestamp(entry.get("generated_at"))
-        entry_environment = str(entry.get("environment") or "").strip().lower()
-        matches_environment = not normalized_environment or entry_environment == normalized_environment
-        if matches_environment and ts is not None and ts < cutoff:
+        matches_scope = _phase11_matches_scope(
+            entry,
+            environment=normalized_environment or None,
+            tenant_id=normalized_tenant or None,
+            project_scope=normalized_project or None,
+        )
+        if matches_scope and ts is not None and ts < cutoff:
             removed_entries.append(entry)
         else:
             kept_entries.append(entry)
 
     if apply_changes:
         for entry in removed_entries:
-            snapshot_id = str(entry.get("snapshot_id") or "").strip()
-            if snapshot_id:
-                target = _REPORTS_DIR / snapshot_id
-                if target.exists() and target.is_dir():
-                    shutil.rmtree(target, ignore_errors=True)
+            target = _phase11_resolve_snapshot_dir(entry)
+            if target and target.exists() and target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
         _save_reports_index(kept_entries)
 
     return {
         "phase": "phase-9-report-cleanup",
         "applied": apply_changes,
         "environment": normalized_environment or None,
+        "tenant_id": normalized_tenant or None,
+        "project_scope": normalized_project or None,
         "retention_days": retention_days,
         "cutoff": cutoff.isoformat(timespec="seconds"),
         "removed_count": len(removed_entries),
@@ -3849,7 +4003,11 @@ def _phase10_normalize_schedule(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schedule_id": schedule_id,
-        "environment": (str(payload.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT).strip() or _PHASE10_DEFAULT_ENVIRONMENT),
+        **_phase11_scope_context(
+            environment=str(payload.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+            tenant_id=str(payload.get("tenant_id") or _PHASE11_DEFAULT_TENANT_ID),
+            project_scope=str(payload.get("project_scope") or _PHASE11_DEFAULT_PROJECT_SCOPE),
+        ),
         "enabled": bool(payload.get("enabled", True)),
         "cadence": cadence,
         "interval_hours": int(payload.get("interval_hours") or 24),
@@ -3893,7 +4051,7 @@ def _phase10_compute_next_run(schedule: dict[str, Any], now: Optional[datetime] 
 def _phase10_upsert_schedule(request: AssistantReportScheduleRequest) -> dict[str, Any]:
     schedule = _phase10_normalize_schedule(request.model_dump())
     schedules = _load_report_schedules()
-    existing = next((item for item in schedules if str(item.get("schedule_id") or "") == schedule["schedule_id"]), None)
+    existing = next((item for item in schedules if _phase11_schedule_identity(item) == _phase11_schedule_identity(schedule)), None)
     if existing:
         schedule["created_at"] = existing.get("created_at") or datetime.now().isoformat(timespec="seconds")
         schedule["last_run_at"] = existing.get("last_run_at")
@@ -3904,18 +4062,32 @@ def _phase10_upsert_schedule(request: AssistantReportScheduleRequest) -> dict[st
     next_run = _phase10_compute_next_run(schedule)
     schedule["next_run_at"] = next_run.isoformat(timespec="seconds") if next_run else None
 
-    schedules = [item for item in schedules if str(item.get("schedule_id") or "") != schedule["schedule_id"]]
+    schedules = [item for item in schedules if _phase11_schedule_identity(item) != _phase11_schedule_identity(schedule)]
     schedules.append(schedule)
     schedules.sort(key=lambda item: str(item.get("schedule_id") or ""))
     _save_report_schedules(schedules)
     return {"phase": "phase-10-report-schedule", "schedule": schedule}
 
 
-def _phase10_list_schedules(environment: Optional[str] = None) -> dict[str, Any]:
+def _phase10_list_schedules(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, Any]:
     schedules = _load_report_schedules()
     normalized_environment = (environment or "").strip().lower()
-    if normalized_environment:
-        schedules = [item for item in schedules if str(item.get("environment") or "").strip().lower() == normalized_environment]
+    normalized_tenant = (tenant_id or "").strip().lower()
+    normalized_project = (project_scope or "").strip().lower()
+    schedules = [
+        item
+        for item in schedules
+        if _phase11_matches_scope(
+            item,
+            environment=normalized_environment or None,
+            tenant_id=normalized_tenant or None,
+            project_scope=normalized_project or None,
+        )
+    ]
 
     now = datetime.now()
     enriched = []
@@ -3930,16 +4102,34 @@ def _phase10_list_schedules(environment: Optional[str] = None) -> dict[str, Any]
     return {
         "phase": "phase-10-report-schedules",
         "environment": normalized_environment or None,
+        "tenant_id": normalized_tenant or None,
+        "project_scope": normalized_project or None,
         "count": len(enriched),
         "items": enriched,
     }
 
 
-def _phase10_run_due_schedules(environment: Optional[str] = None, force: bool = False, limit: int = 10) -> dict[str, Any]:
-    schedules = _load_report_schedules()
+def _phase10_run_due_schedules(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+    force: bool = False,
+    limit: int = 10,
+) -> dict[str, Any]:
+    all_schedules = _load_report_schedules()
     normalized_environment = (environment or "").strip().lower()
-    if normalized_environment:
-        schedules = [item for item in schedules if str(item.get("environment") or "").strip().lower() == normalized_environment]
+    normalized_tenant = (tenant_id or "").strip().lower()
+    normalized_project = (project_scope or "").strip().lower()
+    schedules = [
+        item
+        for item in all_schedules
+        if _phase11_matches_scope(
+            item,
+            environment=normalized_environment or None,
+            tenant_id=normalized_tenant or None,
+            project_scope=normalized_project or None,
+        )
+    ]
 
     now = datetime.now()
     executed: list[dict[str, Any]] = []
@@ -3959,12 +4149,16 @@ def _phase10_run_due_schedules(environment: Optional[str] = None, force: bool = 
                 limit=int(schedule.get("limit") or 200),
                 snapshot_name=snapshot_name,
                 environment=str(schedule.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+                tenant_id=str(schedule.get("tenant_id") or _PHASE11_DEFAULT_TENANT_ID),
+                project_scope=str(schedule.get("project_scope") or _PHASE11_DEFAULT_PROJECT_SCOPE),
                 schedule_id=str(schedule.get("schedule_id") or ""),
             )
             cleanup_result = _phase9_cleanup_snapshots(
                 retention_days=int(schedule.get("retention_days") or 30),
                 apply_changes=True,
                 environment=str(schedule.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+                tenant_id=str(schedule.get("tenant_id") or _PHASE11_DEFAULT_TENANT_ID),
+                project_scope=str(schedule.get("project_scope") or _PHASE11_DEFAULT_PROJECT_SCOPE),
             )
             schedule["last_run_at"] = now.isoformat(timespec="seconds")
             next_future = _phase10_compute_next_run(schedule, now=now)
@@ -3974,6 +4168,8 @@ def _phase10_run_due_schedules(environment: Optional[str] = None, force: bool = 
                 {
                     "schedule_id": schedule.get("schedule_id"),
                     "environment": schedule.get("environment"),
+                    "tenant_id": schedule.get("tenant_id"),
+                    "project_scope": schedule.get("project_scope"),
                     "snapshot": snapshot_result.get("snapshot"),
                     "cleanup": {
                         "removed_count": cleanup_result.get("removed_count"),
@@ -3984,10 +4180,9 @@ def _phase10_run_due_schedules(environment: Optional[str] = None, force: bool = 
 
         updated_schedules.append(schedule)
 
-    # Preserve schedules not filtered out by environment.
-    if normalized_environment:
-        untouched = [item for item in _load_report_schedules() if str(item.get("environment") or "").strip().lower() != normalized_environment]
-        updated_schedules = untouched + updated_schedules
+    processed_keys = {_phase11_schedule_identity(item) for item in schedules}
+    untouched = [item for item in all_schedules if _phase11_schedule_identity(item) not in processed_keys]
+    updated_schedules = untouched + updated_schedules
 
     updated_schedules.sort(key=lambda item: str(item.get("schedule_id") or ""))
     _save_report_schedules(updated_schedules)
@@ -3995,6 +4190,8 @@ def _phase10_run_due_schedules(environment: Optional[str] = None, force: bool = 
     return {
         "phase": "phase-10-report-runner",
         "environment": normalized_environment or None,
+        "tenant_id": normalized_tenant or None,
+        "project_scope": normalized_project or None,
         "force": force,
         "count": len(executed),
         "items": executed,
@@ -4774,6 +4971,9 @@ def assistant_executive_report(request: AssistantExecutiveReportRequest) -> dict
         limit=request.limit,
         persist=bool(request.persist),
         output_name=request.output_name,
+        environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
     )
     return {"ok": True, "result": result}
 
@@ -4790,6 +4990,8 @@ def assistant_executive_report_snapshot(request: AssistantExecutiveSnapshotReque
         limit=request.limit,
         snapshot_name=request.snapshot_name,
         environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
     )
     return {"ok": True, "result": result}
 
@@ -4798,13 +5000,27 @@ def assistant_executive_report_snapshot(request: AssistantExecutiveSnapshotReque
 def assistant_executive_report_index(
     limit: int = Query(default=20, ge=1, le=500),
     environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
 ) -> dict[str, Any]:
-    return {"ok": True, "result": _phase9_list_snapshots(limit, environment)}
+    return {
+        "ok": True,
+        "result": _phase9_list_snapshots(limit, environment, tenant_id, project_scope),
+    }
 
 
 @app.post("/assistant/executive/report/cleanup")
 def assistant_executive_report_cleanup(request: AssistantReportCleanupRequest) -> dict[str, Any]:
-    return {"ok": True, "result": _phase9_cleanup_snapshots(request.retention_days, request.apply_changes, request.environment)}
+    return {
+        "ok": True,
+        "result": _phase9_cleanup_snapshots(
+            request.retention_days,
+            request.apply_changes,
+            request.environment,
+            request.tenant_id,
+            request.project_scope,
+        ),
+    }
 
 
 @app.post("/assistant/executive/report/schedule")
@@ -4813,8 +5029,15 @@ def assistant_executive_report_schedule(request: AssistantReportScheduleRequest)
 
 
 @app.get("/assistant/executive/report/schedule")
-def assistant_executive_report_schedule_list(environment: Optional[str] = Query(default=None)) -> dict[str, Any]:
-    return {"ok": True, "result": _phase10_list_schedules(environment)}
+def assistant_executive_report_schedule_list(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "result": _phase10_list_schedules(environment, tenant_id, project_scope),
+    }
 
 
 @app.post("/assistant/executive/report/schedule/run")
@@ -4823,6 +5046,8 @@ def assistant_executive_report_schedule_run(request: AssistantReportScheduleRunR
         "ok": True,
         "result": _phase10_run_due_schedules(
             environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
             force=bool(request.force),
             limit=request.limit,
         ),
@@ -4866,6 +5091,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase9_report_retention": True,
             "assistant_phase10_report_schedules": True,
             "assistant_phase10_report_runner": True,
+            "assistant_phase11_multi_tenant_reports": True,
         },
         "projects_root": str(project_root()),
     }
