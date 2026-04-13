@@ -14,9 +14,7 @@
         "type": "openapi",
         "auth_type": "none",
         "key": "",
-        "headers": {
-          "X-Bridge-Token": "1152e0b105814d7e85eb2b7e1b383dc6"
-        },
+        "headers": {},
         "config": {
           "enable": true,
           "access_grants": [
@@ -34,6 +32,8 @@
             "assistant_memory_search",
             "assistant_orchestrate",
             "assistant_checkpoint_decision",
+            "assistant_checkpoints",
+            "assistant_checkpoints_cleanup",
             "health",
             "workspace_list",
             "workspace_search",
@@ -159,6 +159,13 @@
         "orquestracao e checkpoint"
       ],
       "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
+    },
+    {
+      "title": [
+        "Fase 4",
+        "governanca de risco"
+      ],
+      "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -233,6 +240,13 @@
           "orquestracao e checkpoint"
         ],
         "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
+      },
+      {
+        "title": [
+          "Fase 4",
+          "governanca de risco"
+        ],
+        "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
       }
     ],
     "default_locale": "pt-BR",

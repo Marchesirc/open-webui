@@ -82,6 +82,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_memory_search",
     "assistant_orchestrate",
     "assistant_checkpoint_decision",
+    "assistant_checkpoints",
+    "assistant_checkpoints_cleanup",
     "health",
     "workspace_list",
     "workspace_search",
@@ -201,6 +203,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 3", "orquestracao e checkpoint"],
         "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
+    },
+    {
+        "title": ["Fase 4", "governanca de risco"],
+        "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
     }
 ]
 
@@ -264,6 +270,12 @@ FIXED_PROMPTS = [
         "name": "Fase 3 Orquestracao com Checkpoint",
         "tags": ["fase3", "orquestracao", "checkpoint"],
         "content": "Atue no modo Fase 3. Orquestre planner executor verifier, valide qualidade da resposta e abra checkpoint de aprovacao para decisoes sensiveis, informando claramente risco, confianca e proxima acao."
+    },
+    {
+        "command": "fase4-governanca-risco",
+        "name": "Fase 4 Governanca de Risco",
+        "tags": ["fase4", "risco", "auditoria"],
+        "content": "Atue no modo Fase 4. Classifique o risco da tarefa, siga a politica de aprovacao (auto, obrigatoria ou bloqueio), consulte checkpoints recentes para auditoria e mantenha trilha de decisao objetiva."
     }
 ]
 

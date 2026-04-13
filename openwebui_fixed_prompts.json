@@ -98,5 +98,15 @@
       "checkpoint"
     ],
     "content": "Atue no modo Fase 3. Orquestre planner executor verifier, valide qualidade da resposta e abra checkpoint de aprovacao para decisoes sensiveis, informando claramente risco, confianca e proxima acao."
+  },
+  {
+    "command": "fase4-governanca-risco",
+    "name": "Fase 4 Governanca de Risco",
+    "tags": [
+      "fase4",
+      "risco",
+      "auditoria"
+    ],
+    "content": "Atue no modo Fase 4. Classifique o risco da tarefa, siga a politica de aprovacao (auto, obrigatoria ou bloqueio), consulte checkpoints recentes para auditoria e mantenha trilha de decisao objetiva."
   }
 ]

@@ -10,7 +10,7 @@ import socket
 import subprocess
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
@@ -508,6 +508,10 @@ class AssistantCheckpointDecisionRequest(BaseModel):
     checkpoint_id: str
     decision: str = Field(description="approve|reject")
     note: str = ""
+
+
+class AssistantCheckpointCleanupRequest(BaseModel):
+    retention_days: int = Field(default=30, ge=1, le=365)
 
 
 def project_root() -> Path:
@@ -2792,6 +2796,27 @@ _MEMORY_DIR = BASE_DIR / "assistant_memory"
 _MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
 _CHECKPOINT_FILE = _MEMORY_DIR / "checkpoints.jsonl"
 
+_PHASE4_RISK_POLICY: dict[str, str] = {
+    "diagnose": "medium",
+    "workspace": "medium",
+    "research": "low",
+    "proteus": "high",
+    "generic": "medium",
+}
+
+_PHASE4_HIGH_IMPACT_TERMS = {
+    "delete",
+    "remove",
+    "overwrite",
+    "format",
+    "reset",
+    "force",
+    "production",
+    "deploy",
+    "firmware",
+    "proteus",
+}
+
 
 def _tokenize_text(text: str) -> set[str]:
     normalized = re.sub(r"[^a-z0-9_\-\s]", " ", (text or "").lower())
@@ -2881,10 +2906,104 @@ def _record_checkpoint_decision(checkpoint_id: str, decision: str, note: str) ->
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "objective": checkpoint.get("objective"),
         "task_type": checkpoint.get("task_type"),
+        "risk": checkpoint.get("risk", {}),
         "status": "approved" if decision == "approve" else "rejected",
     }
     _append_checkpoint(decision_entry)
     return decision_entry
+
+
+def _to_checkpoint_latest_records() -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for item in _load_checkpoints():
+        checkpoint_id = str(item.get("checkpoint_id") or "").strip()
+        if not checkpoint_id:
+            continue
+        latest[checkpoint_id] = item
+
+    records = list(latest.values())
+    records.sort(key=lambda entry: str(entry.get("updated_at") or entry.get("created_at") or ""), reverse=True)
+    return records
+
+
+def _cleanup_old_checkpoints(retention_days: int) -> dict[str, Any]:
+    _ensure_memory_storage()
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    lines = _CHECKPOINT_FILE.read_text(encoding="utf-8").splitlines()
+
+    kept_lines: list[str] = []
+    removed_count = 0
+    for line in lines:
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            kept_lines.append(line)
+            continue
+
+        ts_raw = str(payload.get("updated_at") or payload.get("created_at") or "")
+        keep_item = True
+        if ts_raw:
+            try:
+                ts_value = datetime.fromisoformat(ts_raw)
+                if ts_value < cutoff:
+                    keep_item = False
+            except Exception:
+                keep_item = True
+
+        if keep_item:
+            kept_lines.append(line)
+        else:
+            removed_count += 1
+
+    output = "\n".join(kept_lines)
+    if output:
+        output += "\n"
+    _CHECKPOINT_FILE.write_text(output, encoding="utf-8")
+
+    return {
+        "retention_days": retention_days,
+        "removed_entries": removed_count,
+        "remaining_entries": len(kept_lines),
+        "cutoff": cutoff.isoformat(timespec="seconds"),
+    }
+
+
+def _phase4_classify_risk(task_type: str, objective: str, quality_score: float, require_approval: bool) -> dict[str, Any]:
+    base_level = _PHASE4_RISK_POLICY.get(task_type, "medium")
+    risk_level = base_level
+
+    objective_tokens = _tokenize_text(objective)
+    if objective_tokens.intersection(_PHASE4_HIGH_IMPACT_TERMS):
+        risk_level = "high"
+
+    if quality_score < 70:
+        if risk_level == "low":
+            risk_level = "medium"
+        elif risk_level == "medium":
+            risk_level = "high"
+        else:
+            risk_level = "critical"
+
+    action = "auto-approve"
+    if require_approval:
+        action = "require-approval"
+    elif risk_level in {"high", "critical"}:
+        action = "require-approval"
+
+    if risk_level == "critical":
+        action = "block-until-approval"
+
+    return {
+        "phase": "phase-4-risk-policy",
+        "risk_level": risk_level,
+        "base_level": base_level,
+        "quality_score": quality_score,
+        "action": action,
+        "high_impact_detected": bool(objective_tokens.intersection(_PHASE4_HIGH_IMPACT_TERMS)),
+    }
 
 
 def _build_phase3_roles(task_type: str, objective: str) -> dict[str, Any]:
@@ -3462,7 +3581,16 @@ def assistant_orchestrate(request: AssistantOrchestrateRequest) -> dict[str, Any
         )
     )
 
-    needs_approval = bool(request.require_approval) or quality.get("confidence", {}).get("score", 0) < 75
+    quality_score = float(quality.get("confidence", {}).get("score", 0))
+    risk = _phase4_classify_risk(
+        task_type=task_type,
+        objective=objective,
+        quality_score=quality_score,
+        require_approval=bool(request.require_approval),
+    )
+
+    needs_approval = risk["action"] in {"require-approval", "block-until-approval"}
+    execution_blocked = risk["action"] == "block-until-approval"
     checkpoint_id: Optional[str] = None
     checkpoint_status = "not-required"
     if needs_approval:
@@ -3476,6 +3604,7 @@ def assistant_orchestrate(request: AssistantOrchestrateRequest) -> dict[str, Any
                 "task_type": task_type,
                 "created_at": datetime.now().isoformat(timespec="seconds"),
                 "quality": quality,
+                "risk": risk,
                 "planner_steps": roles["planner"]["steps"],
             }
         )
@@ -3488,10 +3617,12 @@ def assistant_orchestrate(request: AssistantOrchestrateRequest) -> dict[str, Any
         "roles": roles,
         "pipeline": pipeline,
         "quality_gate": quality,
+        "risk": risk,
         "checkpoint": {
             "required": needs_approval,
             "status": checkpoint_status,
             "checkpoint_id": checkpoint_id,
+            "execution_blocked": execution_blocked,
         },
     }
 
@@ -3509,6 +3640,27 @@ def assistant_checkpoint_decision(request: AssistantCheckpointDecisionRequest) -
     note = (request.note or "").strip()
     entry = _record_checkpoint_decision(checkpoint_id=checkpoint_id, decision=decision, note=note)
     return {"ok": True, "checkpoint": entry}
+
+
+@app.get("/assistant/checkpoints")
+def assistant_checkpoints(status: Optional[str] = Query(default=None), limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
+    normalized_status = (status or "").strip().lower() or None
+    records = _to_checkpoint_latest_records()
+    if normalized_status:
+        records = [entry for entry in records if str(entry.get("status") or "").strip().lower() == normalized_status]
+    return {
+        "ok": True,
+        "phase": "phase-4-checkpoint-audit",
+        "status_filter": normalized_status,
+        "count": min(len(records), limit),
+        "items": records[:limit],
+    }
+
+
+@app.post("/assistant/checkpoints/cleanup")
+def assistant_checkpoints_cleanup(request: AssistantCheckpointCleanupRequest) -> dict[str, Any]:
+    result = _cleanup_old_checkpoints(request.retention_days)
+    return {"ok": True, "phase": "phase-4-checkpoint-cleanup", "result": result}
 
 
 @app.get("/assistant/capabilities")
@@ -3534,6 +3686,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase2_memory": True,
             "assistant_phase3_orchestration": True,
             "assistant_phase3_checkpoints": True,
+            "assistant_phase4_risk_policy": True,
+            "assistant_phase4_checkpoint_audit": True,
         },
         "projects_root": str(project_root()),
     }

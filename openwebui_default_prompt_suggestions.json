@@ -68,5 +68,12 @@
       "orquestracao e checkpoint"
     ],
     "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
+  },
+  {
+    "title": [
+      "Fase 4",
+      "governanca de risco"
+    ],
+    "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
   }
 ]
