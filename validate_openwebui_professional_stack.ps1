@@ -70,46 +70,64 @@ async def main():
         'connections_count': len(conns),
         'active_servers_count': len(active),
         'active_server_names': [(s.get('name') or s.get('url')) for s in active],
-        'smoke': None,
+        'smokes': [],
     }
 
-    bridge = next(
-        (
-            s
-            for s in active
-            if (s.get('name') or '').lower().find('proteus bridge') >= 0
-            or str(s.get('url') or '').startswith('http://127.0.0.1:8001')
-        ),
-        None,
-    )
-    if bridge:
-        specs = bridge.get('specs') or []
-        tool_name = 'assistant_capabilities'
+    smoke_plan = [
+        ("proteus bridge", "http://127.0.0.1:8001", "assistant_capabilities", {}),
+        ("local pc mcp", "http://127.0.0.1:8765", "get_pc_summary", {}),
+    ]
+
+    for server_hint, server_url_hint, preferred_tool, params in smoke_plan:
+        server = next(
+            (
+                s
+                for s in active
+                if (
+                    server_hint in (s.get('name') or '').lower()
+                    or str(s.get('url') or '').rstrip('/').startswith(server_url_hint)
+                )
+            ),
+            None,
+        )
+        if not server:
+            out['smokes'].append({
+                'ok': False,
+                'server_hint': server_hint,
+                'error': 'server_not_active',
+            })
+            continue
+
+        specs = server.get('specs') or []
+        tool_name = preferred_tool
         if not any((sp or {}).get('name') == tool_name for sp in specs):
             tool_name = (specs[0] or {}).get('name') if specs else tool_name
 
+        headers = dict(server.get('headers') or {})
         try:
             result, _headers = await execute_tool_server(
-                url=(bridge.get('url') or '').rstrip('/'),
-                headers={},
+                url=(server.get('url') or '').rstrip('/'),
+                headers=headers,
                 cookies={},
                 name=tool_name,
-                params={},
-                server_data=bridge,
+                params=params,
+                server_data=server,
             )
-            out['smoke'] = {
+            out['smokes'].append({
                 'ok': True,
-                'server': bridge.get('name') or bridge.get('url'),
+                'server': server.get('name') or server.get('url'),
                 'tool': tool_name,
                 'result_type': str(type(result)),
-            }
+            })
         except Exception as e:
-            out['smoke'] = {
+            out['smokes'].append({
                 'ok': False,
-                'server': bridge.get('name') or bridge.get('url'),
+                'server': server.get('name') or server.get('url'),
                 'tool': tool_name,
                 'error': f"{type(e).__name__}: {e}",
-            }
+            })
+
+    out['all_smokes_ok'] = all(bool(item.get('ok')) for item in out['smokes']) if out['smokes'] else False
 
     print(json.dumps(out, ensure_ascii=False))
 
@@ -190,7 +208,8 @@ if ($smoke.Ok) {
     Write-Host "[FAIL] Backend Tool Smoke :: $($smoke.Detail.Trim())"
 }
 
-$overallOk = (($null -ne $openWebUiOk) -and (($checks | Where-Object { $_.Name -notlike 'OpenWebUI_*' -and $_.Ok }).Count -eq 3) -and $smoke.Ok)
+$smokeOk = ($smoke.Ok -and ($smoke.Detail -match '"all_smokes_ok": true'))
+$overallOk = (($null -ne $openWebUiOk) -and (($checks | Where-Object { $_.Name -notlike 'OpenWebUI_*' -and $_.Ok }).Count -eq 3) -and $smokeOk)
 if ($overallOk) {
     Write-Host ("Open WebUI ativo em: " + $openWebUiOk.Url)
     Write-Host 'RESULT: PASS (stack profissional operacional)'

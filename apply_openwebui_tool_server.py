@@ -62,6 +62,48 @@ SYSTEM_PROMPT_PATH = Path(__file__).with_name("openwebui_professional_system_pro
 PROFILE_SNAPSHOT_PATH = Path(__file__).with_name("openwebui_restore_snapshot.json")
 RECOMMENDED_LOCAL_CORS = "http://127.0.0.1:8080;http://127.0.0.1:8082;http://127.0.0.1:8081;http://localhost:8080;http://localhost:8082;http://localhost:8081"
 
+TRUSTED_WEB_DOMAINS = [
+    "docs.python.org",
+    "pypi.org",
+    "fastapi.tiangolo.com",
+    "www.starlette.io",
+    "docs.pydantic.dev",
+    "learn.microsoft.com",
+    "stackoverflow.com",
+    "github.com",
+    "developer.mozilla.org",
+]
+
+PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
+    "assistant_capabilities",
+    "health",
+    "workspace_list",
+    "workspace_search",
+    "workspace_mkdir",
+    "workspace_move",
+    "workspace_delete",
+    "web_search",
+    "web_fetch",
+    "network_check",
+    "list_automation_profiles",
+    "automation_run",
+    "pdf_analyze_schematic",
+    "pdf_extract_schematic_candidates",
+    "pdf_build_focused_subset",
+    "proteus_prepare_assisted_project",
+]
+
+LOCAL_PC_MCP_ALLOWED_FUNCTIONS = [
+    "get_pc_summary",
+    "check_local_services",
+    "list_directory",
+    "read_text_file",
+    "list_processes",
+    "list_available_automations",
+    "run_automation",
+    "open_target",
+]
+
 
 def load_default_system_prompt() -> str:
     if SYSTEM_PROMPT_PATH.exists():
@@ -216,6 +258,8 @@ def verify_bridge(base_url: str) -> dict:
 
 
 def build_openapi_connection(base_url: str, principal_id: str) -> dict:
+    bridge_token = (__import__("os").environ.get("OWUI_BRIDGE_TOKEN", "") or "").strip()
+    headers = {"X-Bridge-Token": bridge_token} if bridge_token else {}
     base_url = base_url.rstrip("/")
     name = "Professional Workspace & Proteus Bridge"
     description = "Ferramenta profissional para Open WebUI com automação do Proteus, busca no workspace, execução controlada de PowerShell e apoio de busca web."
@@ -232,7 +276,7 @@ def build_openapi_connection(base_url: str, principal_id: str) -> dict:
         "type": "openapi",
         "auth_type": "none",
         "key": "",
-        "headers": {},
+        "headers": headers,
         "config": {
             "enable": True,
             "access_grants": [
@@ -242,7 +286,7 @@ def build_openapi_connection(base_url: str, principal_id: str) -> dict:
                     "permission": "read",
                 }
             ],
-            "function_name_filter_list": [],
+            "function_name_filter_list": PROTEUS_BRIDGE_ALLOWED_FUNCTIONS,
         },
     }
 
@@ -274,7 +318,7 @@ def build_pc_mcp_connection(principal_id: str, base_url: str = "http://127.0.0.1
                     "permission": "read",
                 }
             ],
-            "function_name_filter_list": [],
+            "function_name_filter_list": LOCAL_PC_MCP_ALLOWED_FUNCTIONS,
         },
     }
 
@@ -391,7 +435,7 @@ def apply_professional_settings(config: dict) -> dict:
             "trust_env": False,
             "ddgs_backend": "auto",
             "fetch_url_max_content_length": 12000,
-            "domain": {"filter_list": []},
+            "domain": {"filter_list": TRUSTED_WEB_DOMAINS},
         }
     )
 

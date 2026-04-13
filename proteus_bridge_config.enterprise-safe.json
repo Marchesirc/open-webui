@@ -5,6 +5,7 @@
   "port": 8001,
   "allow_write": false,
   "allow_shell_commands": false,
+  "bridge_api_token": "",
   "shell_timeout_seconds": 60,
   "shell_max_output_chars": 12000,
   "web_search_max_results": 8,

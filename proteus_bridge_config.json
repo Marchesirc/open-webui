@@ -1,10 +1,11 @@
-{
+﻿{
     "proteus_exe":  "C:/Users/rober/AppData/Local/Programs/Labcenter Electronics/Proteus 9 Professional/Bin/PDS.exe",
     "projects_root":  "D:/Projetos/Proteus_Projects",
     "host":  "127.0.0.1",
     "port":  8001,
-    "allow_write":  true,
-    "allow_shell_commands":  true,
+    "allow_write":  false,
+    "allow_shell_commands":  false,
+    "bridge_api_token":  "1152e0b105814d7e85eb2b7e1b383dc6",
     "shell_timeout_seconds":  60,
     "shell_max_output_chars":  12000,
     "web_search_max_results":  8,
@@ -44,7 +45,7 @@
                   },
     "automation_profiles":  {
                                 "hex_copy_only":  {
-                                                      "description":  "Usa um HEX/ELF jÃƒÆ’Ã‚Â¡ compilado, copia para a pasta do projeto e abre o Proteus.",
+                                                      "description":  "Usa um HEX/ELF ja compilado, copia para a pasta do projeto e abre o Proteus.",
                                                       "build":  {
                                                                     "enabled":  false
                                                                 },

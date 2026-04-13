@@ -13,7 +13,9 @@
       "type": "openapi",
       "auth_type": "none",
       "key": "",
-      "headers": {},
+      "headers": {
+        "X-Bridge-Token": "1152e0b105814d7e85eb2b7e1b383dc6"
+      },
       "config": {
         "enable": true,
         "access_grants": [
@@ -23,7 +25,24 @@
             "permission": "read"
           }
         ],
-        "function_name_filter_list": []
+        "function_name_filter_list": [
+          "assistant_capabilities",
+          "health",
+          "workspace_list",
+          "workspace_search",
+          "workspace_mkdir",
+          "workspace_move",
+          "workspace_delete",
+          "web_search",
+          "web_fetch",
+          "network_check",
+          "list_automation_profiles",
+          "automation_run",
+          "pdf_analyze_schematic",
+          "pdf_extract_schematic_candidates",
+          "pdf_build_focused_subset",
+          "proteus_prepare_assisted_project"
+        ]
       }
     },
     {
@@ -49,7 +68,16 @@
             "permission": "read"
           }
         ],
-        "function_name_filter_list": []
+        "function_name_filter_list": [
+          "get_pc_summary",
+          "check_local_services",
+          "list_directory",
+          "read_text_file",
+          "list_processes",
+          "list_available_automations",
+          "run_automation",
+          "open_target"
+        ]
       }
     }
   ]

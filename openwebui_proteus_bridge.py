@@ -12,6 +12,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
@@ -19,7 +20,7 @@ import psutil
 import requests
 import uvicorn
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -31,8 +32,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "projects_root": str(BASE_DIR),
     "host": "127.0.0.1",
     "port": 8001,
-    "allow_write": True,
-    "allow_shell_commands": True,
+    "allow_write": False,
+    "allow_shell_commands": False,
+    "bridge_api_token": "",
+    "allowed_origins": [
+        "http://127.0.0.1",
+        "http://localhost",
+    ],
     "shell_timeout_seconds": 60,
     "shell_max_output_chars": 12000,
     "web_search_max_results": 8,
@@ -194,6 +200,55 @@ def load_config() -> dict[str, Any]:
 
 CONFIG = load_config()
 
+_METRICS_LOCK = Lock()
+_BRIDGE_METRICS: dict[str, Any] = {
+    "started_at": datetime.now().isoformat(timespec="seconds"),
+    "requests_total": 0,
+    "requests_2xx": 0,
+    "requests_4xx": 0,
+    "requests_5xx": 0,
+    "requests_denied": 0,
+    "by_route": {},
+}
+
+
+def _bridge_token() -> str:
+    token = str(CONFIG.get("bridge_api_token", "")).strip()
+    if token:
+        return token
+    return (__import__("os").environ.get("OWUI_BRIDGE_TOKEN", "") or "").strip()
+
+
+def _is_public_path(path: str) -> bool:
+    return (
+        path in {"/", "/health", "/metrics", "/openapi.json", "/docs", "/redoc"}
+        or path.startswith("/docs")
+        or path.startswith("/redoc")
+    )
+
+
+def _record_metric(path: str, method: str, status_code: int, duration_ms: float) -> None:
+    bucket = "requests_5xx"
+    if 200 <= status_code < 300:
+        bucket = "requests_2xx"
+    elif 400 <= status_code < 500:
+        bucket = "requests_4xx"
+
+    route = f"{method} {path}"
+    with _METRICS_LOCK:
+        _BRIDGE_METRICS["requests_total"] = int(_BRIDGE_METRICS.get("requests_total", 0)) + 1
+        _BRIDGE_METRICS[bucket] = int(_BRIDGE_METRICS.get(bucket, 0)) + 1
+        by_route = _BRIDGE_METRICS.setdefault("by_route", {})
+        stats = dict(by_route.get(route) or {})
+        stats["count"] = int(stats.get("count", 0)) + 1
+        stats["last_status"] = int(status_code)
+        stats["last_latency_ms"] = round(float(duration_ms), 2)
+        stats["avg_latency_ms"] = round(
+            ((float(stats.get("avg_latency_ms", 0.0)) * (stats["count"] - 1)) + float(duration_ms)) / stats["count"],
+            2,
+        )
+        by_route[route] = stats
+
 app = FastAPI(
     title="Professional Workspace & Proteus Bridge",
     version="1.2.0",
@@ -201,11 +256,39 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CONFIG.get("allowed_origins", ["http://127.0.0.1", "http://localhost"]),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def bridge_auth_and_metrics(request: Request, call_next):
+    started = time.perf_counter()
+    expected_token = _bridge_token()
+    path = request.url.path
+
+    if expected_token and (not _is_public_path(path)):
+        provided = (request.headers.get("x-bridge-token") or "").strip()
+        if provided != expected_token:
+            with _METRICS_LOCK:
+                _BRIDGE_METRICS["requests_denied"] = int(_BRIDGE_METRICS.get("requests_denied", 0)) + 1
+            duration_ms = (time.perf_counter() - started) * 1000.0
+            _record_metric(path, request.method, 401, duration_ms)
+            return JSONResponse(status_code=401, content={"ok": False, "error": "invalid_bridge_token"})
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        _record_metric(path, request.method, 500, duration_ms)
+        raise
+
+    duration_ms = (time.perf_counter() - started) * 1000.0
+    _record_metric(path, request.method, int(response.status_code), duration_ms)
+    response.headers["x-bridge-service"] = "openwebui-proteus-bridge"
+    return response
 
 
 class OpenProjectRequest(BaseModel):
@@ -2655,6 +2738,7 @@ def root() -> dict[str, Any]:
 def health() -> dict[str, Any]:
     root = project_root()
     exe = Path(CONFIG.get("proteus_exe", "")).expanduser()
+    token_enabled = bool(_bridge_token())
     return {
         "ok": True,
         "time": datetime.now().isoformat(timespec="seconds"),
@@ -2662,8 +2746,19 @@ def health() -> dict[str, Any]:
         "proteus_exe_exists": exe.exists(),
         "projects_root": str(root),
         "proteus_exe": str(exe),
+        "security": {
+            "bridge_token_enabled": token_enabled,
+            "allow_write": bool(CONFIG.get("allow_write", False)),
+            "allow_shell_commands": bool(CONFIG.get("allow_shell_commands", False)),
+        },
         "running_processes": get_proteus_processes(),
     }
+
+
+@app.get("/metrics")
+def metrics() -> dict[str, Any]:
+    with _METRICS_LOCK:
+        return dict(_BRIDGE_METRICS)
 
 
 @app.get("/projects")
