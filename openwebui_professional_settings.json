@@ -64,6 +64,7 @@
             "assistant_incidents_deduplicate",
             "assistant_incidents_correlation",
             "assistant_incidents_correlation_impact",
+            "assistant_incidents_correlation_forecast",
             "health",
             "workspace_list",
             "workspace_search",
@@ -308,6 +309,13 @@
         "correlacao multi-escopo"
       ],
       "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
+    },
+    {
+      "title": [
+        "Fase 21",
+        "forecast de risco"
+      ],
+      "content": "Execute a Fase 21: projete risco por grupo correlacionado usando tendencia recente vs janela anterior, estime crescimento de incidentes e priorize acoes preventivas antes do escalonamento critico."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -501,6 +509,13 @@
           "correlacao multi-escopo"
         ],
         "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
+      },
+      {
+        "title": [
+          "Fase 21",
+          "forecast de risco"
+        ],
+        "content": "Execute a Fase 21: projete risco por grupo correlacionado usando tendencia recente vs janela anterior, estime crescimento de incidentes e priorize acoes preventivas antes do escalonamento critico."
       }
     ],
     "default_locale": "pt-BR",

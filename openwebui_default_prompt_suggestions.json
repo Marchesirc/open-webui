@@ -187,5 +187,12 @@
       "correlacao multi-escopo"
     ],
     "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
+  },
+  {
+    "title": [
+      "Fase 21",
+      "forecast de risco"
+    ],
+    "content": "Execute a Fase 21: projete risco por grupo correlacionado usando tendencia recente vs janela anterior, estime crescimento de incidentes e priorize acoes preventivas antes do escalonamento critico."
   }
 ]

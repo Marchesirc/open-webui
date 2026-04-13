@@ -268,5 +268,15 @@
       "impacto"
     ],
     "content": "Atue no modo Fase 20. Correlacione incidentes por tenant e ambiente, consolide impacto agregado por severidade e causas, e entregue ranking priorizado dos grupos com recomendacoes executivas objetivas."
+  },
+  {
+    "command": "fase21-forecast-risco",
+    "name": "Fase 21 Forecast de Risco",
+    "tags": [
+      "fase21",
+      "forecast",
+      "risco"
+    ],
+    "content": "Atue no modo Fase 21. Compare tendencia recente com janela anterior por grupo correlacionado, estime crescimento de incidentes e entregue previsao de risco com priorizacao preventiva por tier."
   }
 ]

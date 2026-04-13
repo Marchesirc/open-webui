@@ -710,6 +710,16 @@ class AssistantIncidentCorrelationRequest(BaseModel):
     limit: int = Field(default=5000, ge=100, le=50000)
 
 
+class AssistantIncidentForecastRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    status: str = Field(default="open")
+    days: int = Field(default=7, ge=1, le=90)
+    compare_window_days: int = Field(default=7, ge=1, le=90)
+    limit: int = Field(default=5000, ge=100, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -4932,6 +4942,109 @@ def _phase20_correlation_impact_summary(request: AssistantIncidentCorrelationReq
     }
 
 
+def _phase21_forecast_tier(score: int) -> str:
+    if score >= 120:
+        return "critical"
+    if score >= 70:
+        return "high"
+    if score >= 30:
+        return "medium"
+    return "low"
+
+
+def _phase21_correlation_forecast(request: AssistantIncidentForecastRequest) -> dict[str, Any]:
+    current = _phase20_correlate_incidents(
+        AssistantIncidentCorrelationRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status=request.status,
+            days=request.days,
+            limit=request.limit,
+        )
+    )
+    previous = _phase20_correlate_incidents(
+        AssistantIncidentCorrelationRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status=request.status,
+            days=request.compare_window_days,
+            limit=request.limit,
+        )
+    )
+
+    prev_by_group: dict[tuple[str, str], dict[str, Any]] = {}
+    for group in list(previous.get("groups") or []):
+        key = (str(group.get("tenant_id") or ""), str(group.get("environment") or ""))
+        prev_by_group[key] = group
+
+    forecasts: list[dict[str, Any]] = []
+    for group in list(current.get("groups") or []):
+        key = (str(group.get("tenant_id") or ""), str(group.get("environment") or ""))
+        prev = dict(prev_by_group.get(key) or {})
+        current_count = int(group.get("incidents_count") or 0)
+        previous_count = int(prev.get("incidents_count") or 0)
+        delta = current_count - previous_count
+        growth_pct = 100.0 if previous_count == 0 and current_count > 0 else (round((delta / previous_count) * 100.0, 2) if previous_count > 0 else 0.0)
+        predicted_next_count = max(current_count + delta, 0)
+
+        impact_score = int(group.get("impact_score") or 0)
+        momentum_score = max(delta, 0) * 10
+        acceleration_score = 15 if growth_pct >= 50 else (8 if growth_pct > 0 else 0)
+        forecast_score = impact_score + momentum_score + acceleration_score
+        forecast_tier = _phase21_forecast_tier(forecast_score)
+
+        recommendations: list[str] = []
+        if forecast_tier in {"critical", "high"}:
+            recommendations.append("Antecipar escalonamento do grupo com owner dedicado e janela de resposta reduzida.")
+        if delta > 0:
+            recommendations.append("Tendencia de alta detectada; executar remediacao preventiva antes do proximo ciclo.")
+        if not recommendations:
+            recommendations.append("Risco controlado; manter monitoramento e revisao periodica.")
+
+        forecasts.append(
+            {
+                "tenant_id": group.get("tenant_id"),
+                "environment": group.get("environment"),
+                "current_count": current_count,
+                "previous_count": previous_count,
+                "delta": delta,
+                "growth_pct": growth_pct,
+                "predicted_next_count": predicted_next_count,
+                "impact_score": impact_score,
+                "forecast_score": forecast_score,
+                "forecast_tier": forecast_tier,
+                "projects": list(group.get("projects") or [])[:20],
+                "top_causes": list(group.get("top_causes") or [])[:3],
+                "recommendations": recommendations,
+            }
+        )
+
+    forecasts.sort(key=lambda item: (int(item.get("forecast_score") or 0), int(item.get("current_count") or 0)), reverse=True)
+
+    by_tier: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for item in forecasts:
+        tier = str(item.get("forecast_tier") or "low")
+        by_tier[tier] = int(by_tier.get(tier, 0)) + 1
+
+    return {
+        "phase": "phase-21-risk-forecast",
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "status": (request.status or "").strip().lower() or None,
+            "days": int(request.days),
+            "compare_window_days": int(request.compare_window_days),
+            "limit": int(request.limit),
+        },
+        "groups_count": len(forecasts),
+        "forecast_tiers": by_tier,
+        "groups": forecasts,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -6786,6 +6899,28 @@ def assistant_incidents_correlation_impact(
     return {"ok": True, "result": _phase20_correlation_impact_summary(request)}
 
 
+@app.get("/assistant/incidents/correlation/forecast")
+def assistant_incidents_correlation_forecast(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    status: str = Query(default="open"),
+    days: int = Query(default=7, ge=1, le=90),
+    compare_window_days: int = Query(default=7, ge=1, le=90),
+    limit: int = Query(default=5000, ge=100, le=50000),
+) -> dict[str, Any]:
+    request = AssistantIncidentForecastRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        status=status,
+        days=days,
+        compare_window_days=compare_window_days,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase21_correlation_forecast(request)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -6933,6 +7068,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase18_incident_regression_reopen": True,
             "assistant_phase19_incident_deduplication": True,
             "assistant_phase20_multi_scope_correlation": True,
+            "assistant_phase21_risk_forecast": True,
         },
         "projects_root": str(project_root()),
     }

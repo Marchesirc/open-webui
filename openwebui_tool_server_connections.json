@@ -63,6 +63,7 @@
           "assistant_incidents_deduplicate",
           "assistant_incidents_correlation",
           "assistant_incidents_correlation_impact",
+          "assistant_incidents_correlation_forecast",
           "health",
           "workspace_list",
           "workspace_search",

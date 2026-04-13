@@ -114,6 +114,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_deduplicate",
     "assistant_incidents_correlation",
     "assistant_incidents_correlation_impact",
+    "assistant_incidents_correlation_forecast",
     "health",
     "workspace_list",
     "workspace_search",
@@ -301,6 +302,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 20", "correlacao multi-escopo"],
         "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
+    },
+    {
+        "title": ["Fase 21", "forecast de risco"],
+        "content": "Execute a Fase 21: projete risco por grupo correlacionado usando tendencia recente vs janela anterior, estime crescimento de incidentes e priorize acoes preventivas antes do escalonamento critico."
     }
 ]
 
@@ -466,6 +471,12 @@ FIXED_PROMPTS = [
         "name": "Fase 20 Correlacao e Impacto Multi-Escopo",
         "tags": ["fase20", "correlacao", "impacto"],
         "content": "Atue no modo Fase 20. Correlacione incidentes por tenant e ambiente, consolide impacto agregado por severidade e causas, e entregue ranking priorizado dos grupos com recomendacoes executivas objetivas."
+    },
+    {
+        "command": "fase21-forecast-risco",
+        "name": "Fase 21 Forecast de Risco",
+        "tags": ["fase21", "forecast", "risco"],
+        "content": "Atue no modo Fase 21. Compare tendencia recente com janela anterior por grupo correlacionado, estime crescimento de incidentes e entregue previsao de risco com priorizacao preventiva por tier."
     }
 ]
 
