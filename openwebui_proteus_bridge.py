@@ -720,6 +720,21 @@ class AssistantIncidentForecastRequest(BaseModel):
     limit: int = Field(default=5000, ge=100, le=50000)
 
 
+class AssistantPhase22PlaybookRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=7, ge=1, le=90)
+    compare_window_days: int = Field(default=7, ge=1, le=90)
+    min_tier: str = Field(default="high")
+    dry_run: bool = Field(default=False)
+    force_schedule_critical_hours: int = Field(default=1, ge=1, le=24)
+    force_schedule_high_hours: int = Field(default=4, ge=1, le=48)
+    assign_owner: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    playbook_note: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    limit: int = Field(default=5000, ge=100, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3008,6 +3023,7 @@ _REPORTS_SCHEDULES_FILE = _REPORTS_DIR / "schedules.json"
 _REPORTS_POLICIES_FILE = _REPORTS_DIR / "policies.json"
 _REPORTS_AUDIT_LOGS_FILE = _REPORTS_DIR / "audit_logs.jsonl"
 _REPORTS_INCIDENTS_FILE = _REPORTS_DIR / "incidents.jsonl"
+_REPORTS_PLAYBOOKS_FILE = _REPORTS_DIR / "preventive_playbooks.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -4278,6 +4294,31 @@ def _save_incidents(entries: list[dict[str, Any]]) -> None:
         raise RuntimeError(f"Falha ao salvar incidentes em {_REPORTS_INCIDENTS_FILE}: {exc}") from exc
 
 
+def _load_playbooks() -> list[dict[str, Any]]:
+    if not _REPORTS_PLAYBOOKS_FILE.exists():
+        return []
+    try:
+        runs: list[dict[str, Any]] = []
+        with open(_REPORTS_PLAYBOOKS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                runs.append(json.loads(line))
+        return runs
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_PLAYBOOKS_FILE}: {exc}") from exc
+
+
+def _save_playbook_run(entry: dict[str, Any]) -> None:
+    _REPORTS_PLAYBOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_PLAYBOOKS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar playbook em {_REPORTS_PLAYBOOKS_FILE}: {exc}") from exc
+
+
 def _phase16_open_incident(
     scope: dict[str, str],
     enforcement_result: dict[str, Any],
@@ -5042,6 +5083,156 @@ def _phase21_correlation_forecast(request: AssistantIncidentForecastRequest) -> 
         "groups_count": len(forecasts),
         "forecast_tiers": by_tier,
         "groups": forecasts,
+    }
+
+
+_PHASE22_TIER_ORDER: dict[str, int] = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+
+
+def _phase22_playbook_steps(
+    tier: str,
+    group: dict[str, Any],
+    force_schedule_critical_hours: int,
+    force_schedule_high_hours: int,
+    assign_owner: Optional[str],
+) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    tenant = str(group.get("tenant_id") or "")
+    environment = str(group.get("environment") or "")
+    scope_label = f"{tenant}/{environment}"
+    if tier == "critical":
+        steps.append({
+            "action": "force_schedule_interval",
+            "target": scope_label,
+            "params": {"interval_hours": force_schedule_critical_hours},
+            "rationale": f"Tier critico detectado — forcar verificacao a cada {force_schedule_critical_hours}h",
+        })
+        steps.append({
+            "action": "create_pre_escalation_incident",
+            "target": scope_label,
+            "params": {"severity": "sev1", "source": "phase22-preventive-playbook"},
+            "rationale": "Abrir incidente preditivo sev1 para antecipacao de escalonamento",
+        })
+        steps.append({
+            "action": "alert_ops_channel",
+            "target": scope_label,
+            "params": {"channel": "ops-critical", "priority": "P1"},
+            "rationale": "Notificar canal ops-critical com prioridade P1",
+        })
+    elif tier == "high":
+        steps.append({
+            "action": "force_schedule_interval",
+            "target": scope_label,
+            "params": {"interval_hours": force_schedule_high_hours},
+            "rationale": f"Tier alto detectado — reduzir intervalo de verificacao para {force_schedule_high_hours}h",
+        })
+        steps.append({
+            "action": "create_pre_escalation_incident",
+            "target": scope_label,
+            "params": {"severity": "sev2", "source": "phase22-preventive-playbook"},
+            "rationale": "Abrir incidente preditivo sev2 para monitoramento antecipado",
+        })
+        steps.append({
+            "action": "alert_ops_channel",
+            "target": scope_label,
+            "params": {"channel": "ops-warning", "priority": "P2"},
+            "rationale": "Notificar canal ops-warning com prioridade P2",
+        })
+    if assign_owner and tier in {"critical", "high"}:
+        steps.append({
+            "action": "assign_owner",
+            "target": scope_label,
+            "params": {"owner": assign_owner},
+            "rationale": f"Atribuir owner '{assign_owner}' ao grupo de alto risco",
+        })
+    return steps
+
+
+def _phase22_run_preventive_playbooks(request: AssistantPhase22PlaybookRequest) -> dict[str, Any]:
+    forecast_result = _phase21_correlation_forecast(
+        AssistantIncidentForecastRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status="open",
+            days=request.days,
+            compare_window_days=request.compare_window_days,
+            limit=request.limit,
+        )
+    )
+    min_rank = _PHASE22_TIER_ORDER.get((request.min_tier or "high").strip().lower(), 2)
+    eligible_tiers = {t for t, rank in _PHASE22_TIER_ORDER.items() if rank >= min_rank}
+    groups = list(forecast_result.get("groups") or [])
+    executed_runs: list[dict[str, Any]] = []
+    skipped_count = 0
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    for group in groups:
+        tier = str(group.get("forecast_tier") or "low").strip().lower()
+        if tier not in eligible_tiers:
+            skipped_count += 1
+            continue
+        steps = _phase22_playbook_steps(
+            tier=tier,
+            group=group,
+            force_schedule_critical_hours=int(request.force_schedule_critical_hours),
+            force_schedule_high_hours=int(request.force_schedule_high_hours),
+            assign_owner=(request.assign_owner or "").strip() or None,
+        )
+        run_id = f"pb-{datetime.now().strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 100000}"
+        run: dict[str, Any] = {
+            "playbook_run_id": run_id,
+            "executed_at": now_iso,
+            "tenant_id": str(group.get("tenant_id") or ""),
+            "environment": str(group.get("environment") or ""),
+            "forecast_tier": tier,
+            "forecast_score": int(group.get("forecast_score") or 0),
+            "current_count": int(group.get("current_count") or 0),
+            "predicted_next_count": int(group.get("predicted_next_count") or 0),
+            "steps": steps,
+            "steps_count": len(steps),
+            "dry_run": bool(request.dry_run),
+            "note": (request.playbook_note or "").strip() or None,
+        }
+        if not request.dry_run:
+            _save_playbook_run(run)
+        executed_runs.append(run)
+    return {
+        "phase": "phase-22-preventive-playbooks",
+        "executed_at": now_iso,
+        "dry_run": bool(request.dry_run),
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "min_tier": (request.min_tier or "high").strip().lower(),
+            "days": int(request.days),
+            "compare_window_days": int(request.compare_window_days),
+        },
+        "eligible_tiers": sorted(eligible_tiers),
+        "groups_evaluated": len(groups),
+        "playbooks_triggered": len(executed_runs),
+        "playbooks_skipped": skipped_count,
+        "runs": executed_runs,
+    }
+
+
+def _phase22_playbook_history(days: int = 30, limit: int = 500) -> dict[str, Any]:
+    runs = _load_playbooks()
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    filtered = [r for r in runs if str(r.get("executed_at") or "") >= cutoff]
+    filtered.sort(key=lambda r: str(r.get("executed_at") or ""), reverse=True)
+    filtered = filtered[:limit]
+    by_tier: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for r in filtered:
+        tier = str(r.get("forecast_tier") or "low")
+        by_tier[tier] = int(by_tier.get(tier, 0)) + 1
+    return {
+        "phase": "phase-22-playbook-history",
+        "days": days,
+        "limit": limit,
+        "total_runs": len(filtered),
+        "runs_by_tier": by_tier,
+        "runs": filtered,
     }
 
 
@@ -6921,6 +7112,19 @@ def assistant_incidents_correlation_forecast(
     return {"ok": True, "result": _phase21_correlation_forecast(request)}
 
 
+@app.post("/assistant/incidents/playbooks/run")
+def assistant_incidents_playbooks_run(request: AssistantPhase22PlaybookRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase22_run_preventive_playbooks(request)}
+
+
+@app.get("/assistant/incidents/playbooks/history")
+def assistant_incidents_playbooks_history(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase22_playbook_history(days=days, limit=limit)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -7069,6 +7273,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase19_incident_deduplication": True,
             "assistant_phase20_multi_scope_correlation": True,
             "assistant_phase21_risk_forecast": True,
+            "assistant_phase22_preventive_playbooks": True,
         },
         "projects_root": str(project_root()),
     }

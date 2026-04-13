@@ -115,6 +115,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_correlation",
     "assistant_incidents_correlation_impact",
     "assistant_incidents_correlation_forecast",
+    "assistant_incidents_playbooks_run",
+    "assistant_incidents_playbooks_history",
     "health",
     "workspace_list",
     "workspace_search",
@@ -477,6 +479,12 @@ FIXED_PROMPTS = [
         "name": "Fase 21 Forecast de Risco",
         "tags": ["fase21", "forecast", "risco"],
         "content": "Atue no modo Fase 21. Compare tendencia recente com janela anterior por grupo correlacionado, estime crescimento de incidentes e entregue previsao de risco com priorizacao preventiva por tier."
+    },
+    {
+        "command": "fase22-playbooks-preventivos",
+        "name": "Fase 22 Playbooks Preventivos por Forecast",
+        "tags": ["fase22", "playbooks", "preventivo", "forecast"],
+        "content": "Atue no modo Fase 22. Avalie o forecast de risco por grupo correlacionado e execute playbooks preventivos automaticos para grupos em tier high ou critical: forcanda intervalo de schedule, abrindo incidentes preditivos, atribuindo owner e alertando canais ops antes do escalonamento real."
     }
 ]
 
