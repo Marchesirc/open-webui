@@ -129,6 +129,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_sla_breach_forecast",
     "assistant_incidents_remediation_run",
     "assistant_incidents_remediation_history",
+    "assistant_incidents_escalation_run",
+    "assistant_incidents_escalation_history",
     "health",
     "workspace_list",
     "workspace_search",
@@ -533,6 +535,12 @@ FIXED_PROMPTS = [
         "name": "Fase 28 Auto Remediacao Guiada por Playbook",
         "tags": ["fase28", "auto-remediacao", "playbook", "approval"],
         "content": "Atue no modo Fase 28. Execute remediacao automatizada para incidentes com risco alto de SLA usando playbooks seguros, com suporte a dry-run e aprovacao explicita antes da execucao efetiva."
+    },
+    {
+        "command": "fase29-escalonamento-temporal-sla",
+        "name": "Fase 29 Escalonamento Temporal de SLA",
+        "tags": ["fase29", "sla", "escalonamento", "t-15", "t-5"],
+        "content": "Atue no modo Fase 29. Execute governanca de SLA com escalonamento temporal por estagios T-15, T-5 e breached, aplicando prioridade progressiva, bloqueio por aprovacao opcional e historico auditavel de escalacoes."
     }
 ]
 

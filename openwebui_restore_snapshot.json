@@ -754,6 +754,18 @@
         "approval"
       ],
       "content": "Atue no modo Fase 28. Execute remediacao automatizada para incidentes com risco alto de SLA usando playbooks seguros, com suporte a dry-run e aprovacao explicita antes da execucao efetiva."
+    },
+    {
+      "command": "fase29-escalonamento-temporal-sla",
+      "name": "Fase 29 Escalonamento Temporal de SLA",
+      "tags": [
+        "fase29",
+        "sla",
+        "escalonamento",
+        "t-15",
+        "t-5"
+      ],
+      "content": "Atue no modo Fase 29. Execute governanca de SLA com escalonamento temporal por estagios T-15, T-5 e breached, aplicando prioridade progressiva, bloqueio por aprovacao opcional e historico auditavel de escalacoes."
     }
   ],
   "bridge_url": "http://127.0.0.1:8001",

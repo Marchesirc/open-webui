@@ -817,6 +817,18 @@ class AssistantPhase28RemediationRunRequest(BaseModel):
     limit: int = Field(default=5000, ge=10, le=50000)
 
 
+class AssistantPhase29EscalationRunRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=7, ge=1, le=90)
+    approval_required: bool = Field(default=True)
+    approved: bool = Field(default=False)
+    force_reescalate: bool = Field(default=False)
+    dry_run: bool = Field(default=False)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3109,6 +3121,7 @@ _REPORTS_PLAYBOOKS_FILE = _REPORTS_DIR / "preventive_playbooks.jsonl"
 _REPORTS_POSTMORTEMS_FILE = _REPORTS_DIR / "postmortems.jsonl"
 _REPORTS_ROUTING_FILE = _REPORTS_DIR / "routing_rules.json"
 _REPORTS_REMEDIATIONS_FILE = _REPORTS_DIR / "remediation_runs.jsonl"
+_REPORTS_ESCALATIONS_FILE = _REPORTS_DIR / "sla_escalation_runs.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -6156,6 +6169,184 @@ def _phase28_remediation_history(days: int = 30, limit: int = 200) -> dict[str, 
     }
 
 
+# ── Phase 29: SLA Governance com Escalonamento Temporal ─────────────────────
+
+def _load_sla_escalation_runs() -> list[dict[str, Any]]:
+    if not _REPORTS_ESCALATIONS_FILE.exists():
+        return []
+    try:
+        items: list[dict[str, Any]] = []
+        with open(_REPORTS_ESCALATIONS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                items.append(json.loads(line))
+        return items
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_ESCALATIONS_FILE}: {exc}") from exc
+
+
+def _save_sla_escalation_run(entry: dict[str, Any]) -> None:
+    _REPORTS_ESCALATIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_ESCALATIONS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar escalacao em {_REPORTS_ESCALATIONS_FILE}: {exc}") from exc
+
+
+def _phase29_escalation_stage(minutes_to_breach: float, risk_tier: str) -> Optional[str]:
+    risk = str(risk_tier or "").strip().lower()
+    if risk == "breached" or minutes_to_breach <= 0:
+        return "breached"
+    if minutes_to_breach <= 5:
+        return "t_minus_5"
+    if minutes_to_breach <= 15:
+        return "t_minus_15"
+    return None
+
+
+def _phase29_stage_priority(stage: str) -> str:
+    stage_key = str(stage or "").strip().lower()
+    if stage_key == "breached":
+        return "P1"
+    if stage_key == "t_minus_5":
+        return "P1"
+    if stage_key == "t_minus_15":
+        return "P2"
+    return "P3"
+
+
+def _phase29_run_temporal_escalation(request: AssistantPhase29EscalationRunRequest) -> dict[str, Any]:
+    forecast = _phase27_sla_breach_forecast(
+        AssistantPhase27SlaForecastRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status="open",
+            days=int(request.days),
+            limit=int(request.limit),
+        )
+    )
+    incidents_forecast = list(forecast.get("incidents") or [])
+
+    approval_blocked = bool(request.approval_required and not request.approved)
+    dry_mode = bool(request.dry_run or approval_blocked)
+    now_iso = datetime.now().isoformat(timespec="seconds")
+
+    all_incidents = _load_incidents()
+    by_id: dict[str, dict[str, Any]] = {str(i.get("incident_id") or ""): dict(i) for i in all_incidents}
+
+    escalations: list[dict[str, Any]] = []
+    updated_ids: set[str] = set()
+
+    for row in incidents_forecast:
+        incident_id = str(row.get("incident_id") or "")
+        if not incident_id:
+            continue
+        minutes_to_breach = float(row.get("minutes_to_breach") or 0)
+        risk_tier = str(row.get("risk_tier") or "low")
+        stage = _phase29_escalation_stage(minutes_to_breach, risk_tier)
+        if stage is None:
+            continue
+
+        mutable = by_id.get(incident_id)
+        if mutable is None:
+            continue
+
+        previous_stage = str(mutable.get("last_escalation_stage") or "").strip().lower()
+        if previous_stage == stage and not bool(request.force_reescalate):
+            continue
+
+        escalation = {
+            "phase": "phase-29-sla-governance-escalation",
+            "escalation_id": f"esc-{datetime.now().strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 100000}",
+            "created_at": now_iso,
+            "incident_id": incident_id,
+            "stage": stage,
+            "risk_tier": risk_tier,
+            "minutes_to_breach": minutes_to_breach,
+            "priority": _phase29_stage_priority(stage),
+            "owner": row.get("owner"),
+            "channel": row.get("channel"),
+            "approval_required": bool(request.approval_required),
+            "approved": bool(request.approved),
+            "dry_run": dry_mode,
+            "status": "planned" if dry_mode else "executed",
+            "message": f"Escalonamento temporal SLA no estagio {stage}",
+        }
+        escalations.append(escalation)
+
+        if not dry_mode:
+            mutable["last_escalation_stage"] = stage
+            mutable["last_escalation_at"] = now_iso
+            mutable["last_escalation_priority"] = escalation["priority"]
+            mutable["last_escalation_channel"] = escalation.get("channel")
+            mutable["last_escalation_owner"] = escalation.get("owner")
+            by_id[incident_id] = mutable
+            updated_ids.add(incident_id)
+            _save_sla_escalation_run(escalation)
+
+    if updated_ids and not dry_mode:
+        merged: list[dict[str, Any]] = []
+        for item in all_incidents:
+            iid = str(item.get("incident_id") or "")
+            merged.append(by_id.get(iid, dict(item)))
+        _save_incidents(merged)
+
+    by_stage: dict[str, int] = {"t_minus_15": 0, "t_minus_5": 0, "breached": 0}
+    for esc in escalations:
+        st = str(esc.get("stage") or "")
+        if st in by_stage:
+            by_stage[st] = int(by_stage.get(st, 0)) + 1
+
+    return {
+        "phase": "phase-29-sla-governance-escalation",
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "days": int(request.days),
+            "limit": int(request.limit),
+        },
+        "approval_blocked": approval_blocked,
+        "dry_run": dry_mode,
+        "force_reescalate": bool(request.force_reescalate),
+        "total_candidates": len(incidents_forecast),
+        "escalations_generated": len(escalations),
+        "by_stage": by_stage,
+        "escalations": escalations,
+    }
+
+
+def _phase29_escalation_history(days: int = 30, limit: int = 200) -> dict[str, Any]:
+    rows = _load_sla_escalation_runs()
+    cutoff = (datetime.now() - timedelta(days=max(1, int(days)))).isoformat(timespec="seconds")
+    filtered = [r for r in rows if str(r.get("created_at") or "") >= cutoff]
+    filtered.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    filtered = filtered[: max(1, int(limit))]
+
+    by_stage: dict[str, int] = {"t_minus_15": 0, "t_minus_5": 0, "breached": 0}
+    by_status: dict[str, int] = {}
+    for row in filtered:
+        stage = str(row.get("stage") or "")
+        status = str(row.get("status") or "unknown")
+        if stage in by_stage:
+            by_stage[stage] = int(by_stage.get(stage, 0)) + 1
+        by_status[status] = int(by_status.get(status, 0)) + 1
+
+    return {
+        "phase": "phase-29-sla-escalation-history",
+        "days": int(days),
+        "limit": int(limit),
+        "total": len(filtered),
+        "by_stage": by_stage,
+        "by_status": by_status,
+        "escalations": filtered,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -8166,6 +8357,19 @@ def assistant_incidents_remediation_history(
     return {"ok": True, "result": _phase28_remediation_history(days=days, limit=limit)}
 
 
+@app.post("/assistant/incidents/escalation/run")
+def assistant_incidents_escalation_run(request: AssistantPhase29EscalationRunRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase29_run_temporal_escalation(request)}
+
+
+@app.get("/assistant/incidents/escalation/history")
+def assistant_incidents_escalation_history(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase29_escalation_history(days=days, limit=limit)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -8322,6 +8526,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase27_auto_ack_assignment": True,
             "assistant_phase27_sla_breach_predictor": True,
             "assistant_phase28_auto_remediation": True,
+            "assistant_phase29_sla_temporal_escalation": True,
         },
         "projects_root": str(project_root()),
     }

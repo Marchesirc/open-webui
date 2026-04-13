@@ -79,6 +79,8 @@
             "assistant_incidents_sla_breach_forecast",
             "assistant_incidents_remediation_run",
             "assistant_incidents_remediation_history",
+            "assistant_incidents_escalation_run",
+            "assistant_incidents_escalation_history",
             "health",
             "workspace_list",
             "workspace_search",
