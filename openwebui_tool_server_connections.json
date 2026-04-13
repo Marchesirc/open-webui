@@ -33,6 +33,8 @@
           "assistant_checkpoint_decision",
           "assistant_checkpoints",
           "assistant_checkpoints_cleanup",
+          "assistant_sla_summary",
+          "assistant_checkpoints_escalate",
           "health",
           "workspace_list",
           "workspace_search",

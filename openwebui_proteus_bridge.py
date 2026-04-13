@@ -514,6 +514,12 @@ class AssistantCheckpointCleanupRequest(BaseModel):
     retention_days: int = Field(default=30, ge=1, le=365)
 
 
+class AssistantCheckpointEscalationRequest(BaseModel):
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2817,6 +2823,9 @@ _PHASE4_HIGH_IMPACT_TERMS = {
     "proteus",
 }
 
+_PHASE5_SLA_WARNING_HOURS = 4
+_PHASE5_SLA_CRITICAL_HOURS = 24
+
 
 def _tokenize_text(text: str) -> set[str]:
     normalized = re.sub(r"[^a-z0-9_\-\s]", " ", (text or "").lower())
@@ -2968,6 +2977,139 @@ def _cleanup_old_checkpoints(retention_days: int) -> dict[str, Any]:
         "removed_entries": removed_count,
         "remaining_entries": len(kept_lines),
         "cutoff": cutoff.isoformat(timespec="seconds"),
+    }
+
+
+def _parse_checkpoint_timestamp(value: Any) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def _phase5_enrich_checkpoint_sla(
+    checkpoint: dict[str, Any],
+    warning_after_hours: int = _PHASE5_SLA_WARNING_HOURS,
+    critical_after_hours: int = _PHASE5_SLA_CRITICAL_HOURS,
+) -> dict[str, Any]:
+    enriched = dict(checkpoint)
+    created_at = _parse_checkpoint_timestamp(checkpoint.get("created_at") or checkpoint.get("updated_at"))
+    age_hours = 0.0
+    if created_at is not None:
+        age_hours = round(max((datetime.now() - created_at).total_seconds(), 0.0) / 3600.0, 2)
+
+    risk = checkpoint.get("risk") or {}
+    risk_level = str(risk.get("risk_level") or "unknown").strip().lower()
+    status = str(checkpoint.get("status") or "").strip().lower()
+
+    sla_state = "healthy"
+    if status == "pending":
+        if age_hours >= critical_after_hours:
+            sla_state = "critical"
+        elif age_hours >= warning_after_hours:
+            sla_state = "warning"
+
+    escalation_level = "none"
+    if status == "pending":
+        if sla_state == "critical" or risk_level == "critical":
+            escalation_level = "sev2"
+        elif sla_state == "warning" or risk_level == "high":
+            escalation_level = "sev3"
+
+    enriched["sla"] = {
+        "phase": "phase-5-sla",
+        "age_hours": age_hours,
+        "state": sla_state,
+        "warning_after_hours": warning_after_hours,
+        "critical_after_hours": critical_after_hours,
+        "escalation_level": escalation_level,
+    }
+    return enriched
+
+
+def _phase5_sla_summary(
+    warning_after_hours: int = _PHASE5_SLA_WARNING_HOURS,
+    critical_after_hours: int = _PHASE5_SLA_CRITICAL_HOURS,
+    limit: int = 100,
+) -> dict[str, Any]:
+    records = [_phase5_enrich_checkpoint_sla(item, warning_after_hours, critical_after_hours) for item in _to_checkpoint_latest_records()[:limit]]
+    pending = [item for item in records if str(item.get("status") or "").strip().lower() == "pending"]
+    warning = [item for item in pending if item.get("sla", {}).get("state") == "warning"]
+    critical = [item for item in pending if item.get("sla", {}).get("state") == "critical"]
+    escalated = [item for item in pending if item.get("sla", {}).get("escalation_level") in {"sev2", "sev3"}]
+
+    alerts: list[str] = []
+    if critical:
+        alerts.append(f"{len(critical)} checkpoint(s) pendente(s) em estado critical")
+    if warning:
+        alerts.append(f"{len(warning)} checkpoint(s) pendente(s) em estado warning")
+    if not alerts:
+        alerts.append("Nenhum checkpoint pendente fora do SLA")
+
+    return {
+        "phase": "phase-5-sla-summary",
+        "thresholds": {
+            "warning_after_hours": warning_after_hours,
+            "critical_after_hours": critical_after_hours,
+        },
+        "counts": {
+            "total": len(records),
+            "pending": len(pending),
+            "warning": len(warning),
+            "critical": len(critical),
+            "escalated": len(escalated),
+        },
+        "alerts": alerts,
+        "items": records,
+    }
+
+
+def _phase5_escalate_pending_checkpoints(
+    warning_after_hours: int = _PHASE5_SLA_WARNING_HOURS,
+    critical_after_hours: int = _PHASE5_SLA_CRITICAL_HOURS,
+    limit: int = 50,
+) -> dict[str, Any]:
+    records = _phase5_sla_summary(warning_after_hours, critical_after_hours, limit=200).get("items", [])
+    escalated_items: list[dict[str, Any]] = []
+
+    for item in records:
+        if len(escalated_items) >= limit:
+            break
+        if str(item.get("status") or "").strip().lower() != "pending":
+            continue
+        escalation_level = str(item.get("sla", {}).get("escalation_level") or "none")
+        if escalation_level == "none":
+            continue
+
+        note = (
+            f"Escalonamento automatico {escalation_level} por SLA {item.get('sla', {}).get('state')} "
+            f"com idade {item.get('sla', {}).get('age_hours')}h"
+        )
+        escalated_entry = {
+            "checkpoint_id": item.get("checkpoint_id"),
+            "status": "escalated",
+            "decision": "escalate",
+            "note": note,
+            "objective": item.get("objective"),
+            "task_type": item.get("task_type"),
+            "risk": item.get("risk", {}),
+            "sla": item.get("sla", {}),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        _append_checkpoint(escalated_entry)
+        escalated_items.append(escalated_entry)
+
+    return {
+        "phase": "phase-5-sla-escalation",
+        "thresholds": {
+            "warning_after_hours": warning_after_hours,
+            "critical_after_hours": critical_after_hours,
+        },
+        "count": len(escalated_items),
+        "items": escalated_items,
     }
 
 
@@ -3663,6 +3805,29 @@ def assistant_checkpoints_cleanup(request: AssistantCheckpointCleanupRequest) ->
     return {"ok": True, "phase": "phase-4-checkpoint-cleanup", "result": result}
 
 
+@app.get("/assistant/sla/summary")
+def assistant_sla_summary(
+    warning_after_hours: int = Query(default=_PHASE5_SLA_WARNING_HOURS, ge=1, le=720),
+    critical_after_hours: int = Query(default=_PHASE5_SLA_CRITICAL_HOURS, ge=1, le=1440),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    if critical_after_hours < warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    return {"ok": True, "result": _phase5_sla_summary(warning_after_hours, critical_after_hours, limit)}
+
+
+@app.post("/assistant/checkpoints/escalate")
+def assistant_checkpoints_escalate(request: AssistantCheckpointEscalationRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    result = _phase5_escalate_pending_checkpoints(
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+    )
+    return {"ok": True, "result": result}
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -3688,6 +3853,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase3_checkpoints": True,
             "assistant_phase4_risk_policy": True,
             "assistant_phase4_checkpoint_audit": True,
+            "assistant_phase5_sla": True,
+            "assistant_phase5_escalation": True,
         },
         "projects_root": str(project_root()),
     }

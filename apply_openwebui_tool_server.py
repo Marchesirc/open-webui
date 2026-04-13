@@ -84,6 +84,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_checkpoint_decision",
     "assistant_checkpoints",
     "assistant_checkpoints_cleanup",
+    "assistant_sla_summary",
+    "assistant_checkpoints_escalate",
     "health",
     "workspace_list",
     "workspace_search",
@@ -207,6 +209,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 4", "governanca de risco"],
         "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
+    },
+    {
+        "title": ["Fase 5", "sla e escalonamento"],
+        "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
     }
 ]
 
@@ -276,6 +282,12 @@ FIXED_PROMPTS = [
         "name": "Fase 4 Governanca de Risco",
         "tags": ["fase4", "risco", "auditoria"],
         "content": "Atue no modo Fase 4. Classifique o risco da tarefa, siga a politica de aprovacao (auto, obrigatoria ou bloqueio), consulte checkpoints recentes para auditoria e mantenha trilha de decisao objetiva."
+    },
+    {
+        "command": "fase5-sla-escalonamento",
+        "name": "Fase 5 SLA e Escalonamento",
+        "tags": ["fase5", "sla", "escalonamento"],
+        "content": "Atue no modo Fase 5. Monitore o aging de checkpoints pendentes, resuma o estado SLA, destaque alertas warning e critical e acione escalonamento automatico quando o prazo operacional for excedido."
     }
 ]
 

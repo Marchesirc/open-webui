@@ -75,5 +75,12 @@
       "governanca de risco"
     ],
     "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
+  },
+  {
+    "title": [
+      "Fase 5",
+      "sla e escalonamento"
+    ],
+    "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
   }
 ]

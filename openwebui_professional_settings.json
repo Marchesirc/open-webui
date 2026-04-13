@@ -34,6 +34,8 @@
             "assistant_checkpoint_decision",
             "assistant_checkpoints",
             "assistant_checkpoints_cleanup",
+            "assistant_sla_summary",
+            "assistant_checkpoints_escalate",
             "health",
             "workspace_list",
             "workspace_search",
@@ -166,6 +168,13 @@
         "governanca de risco"
       ],
       "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
+    },
+    {
+      "title": [
+        "Fase 5",
+        "sla e escalonamento"
+      ],
+      "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -247,6 +256,13 @@
           "governanca de risco"
         ],
         "content": "Execute a Fase 4: classifique risco por tipo de tarefa e confianca, aplique politica de aprovacao automatica, consulte auditoria de checkpoints e limpe historico antigo quando necessario."
+      },
+      {
+        "title": [
+          "Fase 5",
+          "sla e escalonamento"
+        ],
+        "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
       }
     ],
     "default_locale": "pt-BR",
