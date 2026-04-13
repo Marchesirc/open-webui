@@ -180,5 +180,12 @@
       "deduplicacao inteligente"
     ],
     "content": "Execute a Fase 19: aplique deduplicacao de incidentes por fingerprint e janela temporal, evite abrir duplicatas em regressao repetida e consolide itens redundantes no incidente principal."
+  },
+  {
+    "title": [
+      "Fase 20",
+      "correlacao multi-escopo"
+    ],
+    "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
   }
 ]

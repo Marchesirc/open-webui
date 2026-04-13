@@ -112,6 +112,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_close_resolved",
     "assistant_incidents_reopen_regressed",
     "assistant_incidents_deduplicate",
+    "assistant_incidents_correlation",
+    "assistant_incidents_correlation_impact",
     "health",
     "workspace_list",
     "workspace_search",
@@ -295,6 +297,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 19", "deduplicacao inteligente"],
         "content": "Execute a Fase 19: aplique deduplicacao de incidentes por fingerprint e janela temporal, evite abrir duplicatas em regressao repetida e consolide itens redundantes no incidente principal."
+    },
+    {
+        "title": ["Fase 20", "correlacao multi-escopo"],
+        "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
     }
 ]
 
@@ -454,6 +460,12 @@ FIXED_PROMPTS = [
         "name": "Fase 19 Deduplicacao Inteligente de Incidentes",
         "tags": ["fase19", "incidentes", "deduplicacao"],
         "content": "Atue no modo Fase 19. Calcule fingerprint por escopo e checks falhos, reutilize incidente aberto na janela configurada e execute deduplicacao batch para marcar duplicados sem perder rastreabilidade."
+    },
+    {
+        "command": "fase20-correlacao-impacto",
+        "name": "Fase 20 Correlacao e Impacto Multi-Escopo",
+        "tags": ["fase20", "correlacao", "impacto"],
+        "content": "Atue no modo Fase 20. Correlacione incidentes por tenant e ambiente, consolide impacto agregado por severidade e causas, e entregue ranking priorizado dos grupos com recomendacoes executivas objetivas."
     }
 ]
 

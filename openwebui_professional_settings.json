@@ -62,6 +62,8 @@
             "assistant_incidents_close_resolved",
             "assistant_incidents_reopen_regressed",
             "assistant_incidents_deduplicate",
+            "assistant_incidents_correlation",
+            "assistant_incidents_correlation_impact",
             "health",
             "workspace_list",
             "workspace_search",
@@ -299,6 +301,13 @@
         "deduplicacao inteligente"
       ],
       "content": "Execute a Fase 19: aplique deduplicacao de incidentes por fingerprint e janela temporal, evite abrir duplicatas em regressao repetida e consolide itens redundantes no incidente principal."
+    },
+    {
+      "title": [
+        "Fase 20",
+        "correlacao multi-escopo"
+      ],
+      "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -485,6 +494,13 @@
           "deduplicacao inteligente"
         ],
         "content": "Execute a Fase 19: aplique deduplicacao de incidentes por fingerprint e janela temporal, evite abrir duplicatas em regressao repetida e consolide itens redundantes no incidente principal."
+      },
+      {
+        "title": [
+          "Fase 20",
+          "correlacao multi-escopo"
+        ],
+        "content": "Execute a Fase 20: correlacione incidentes entre projetos de um mesmo tenant/ambiente, calcule impacto agregado por severidade e entregue priorizacao executiva baseada em grupos correlacionados."
       }
     ],
     "default_locale": "pt-BR",

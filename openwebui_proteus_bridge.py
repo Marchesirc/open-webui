@@ -701,6 +701,15 @@ class AssistantIncidentDedupRequest(BaseModel):
     limit: int = Field(default=5000, ge=100, le=50000)
 
 
+class AssistantIncidentCorrelationRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    status: str = Field(default="open")
+    days: int = Field(default=7, ge=1, le=90)
+    limit: int = Field(default=5000, ge=100, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3037,6 +3046,13 @@ _PHASE9_DEFAULT_SNAPSHOT_FORMATS = ["markdown", "csv", "json"]
 _PHASE10_DEFAULT_ENVIRONMENT = "default"
 _PHASE11_DEFAULT_TENANT_ID = "shared"
 _PHASE11_DEFAULT_PROJECT_SCOPE = "general"
+_PHASE20_SEVERITY_WEIGHTS: dict[str, int] = {
+    "sev1": 40,
+    "sev2": 20,
+    "sev3": 10,
+    "sev4": 5,
+    "unknown": 1,
+}
 
 
 def _tokenize_text(text: str) -> set[str]:
@@ -4765,6 +4781,154 @@ def _phase16_incidents_summary(
         "total": len(items),
         "by_severity": by_severity,
         "by_status": by_status,
+    }
+
+
+def _phase20_impact_tier(score: int) -> str:
+    if score >= 80:
+        return "critical"
+    if score >= 40:
+        return "high"
+    if score >= 20:
+        return "medium"
+    return "low"
+
+
+def _phase20_correlate_incidents(request: AssistantIncidentCorrelationRequest) -> dict[str, Any]:
+    listed = _phase16_list_incidents(
+        environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
+        status=request.status,
+        severity=None,
+        days=request.days,
+        limit=request.limit,
+    )
+    items = list(listed.get("items") or [])
+
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in items:
+        scope = dict(item.get("scope") or {})
+        tenant = str(scope.get("tenant_id") or "unknown").strip().lower() or "unknown"
+        env = str(scope.get("environment") or "unknown").strip().lower() or "unknown"
+        key = (tenant, env)
+        group = groups.get(key)
+        if group is None:
+            group = {
+                "tenant_id": tenant,
+                "environment": env,
+                "incidents_count": 0,
+                "severity_breakdown": {},
+                "projects": set(),
+                "fingerprints": set(),
+                "incident_ids": [],
+                "latest_at": "",
+                "impact_score": 0,
+                "impact_tier": "low",
+                "top_causes": [],
+            }
+            groups[key] = group
+
+        sev = str(item.get("severity") or "unknown").strip().lower() or "unknown"
+        project = str(scope.get("project_scope") or "unknown").strip().lower() or "unknown"
+        fingerprint = str(item.get("fingerprint_key") or "").strip().lower()
+        ts = str(item.get("reopened_at") or item.get("created_at") or "")
+
+        group["incidents_count"] = int(group.get("incidents_count", 0)) + 1
+        sev_break = dict(group.get("severity_breakdown") or {})
+        sev_break[sev] = int(sev_break.get(sev, 0)) + 1
+        group["severity_breakdown"] = sev_break
+        group["projects"].add(project)
+        if fingerprint:
+            group["fingerprints"].add(fingerprint)
+        group["incident_ids"].append(str(item.get("incident_id") or ""))
+        if ts >= str(group.get("latest_at") or ""):
+            group["latest_at"] = ts
+
+    output_groups: list[dict[str, Any]] = []
+    for group in groups.values():
+        sev_break = dict(group.get("severity_breakdown") or {})
+        severity_score = 0
+        for sev, count in sev_break.items():
+            severity_score += int(_PHASE20_SEVERITY_WEIGHTS.get(str(sev), _PHASE20_SEVERITY_WEIGHTS["unknown"])) * int(count)
+        scope_spread = len(group.get("projects") or set()) * 3
+        cause_spread = len(group.get("fingerprints") or set()) * 2
+        impact_score = severity_score + scope_spread + cause_spread
+        impact_tier = _phase20_impact_tier(impact_score)
+
+        top_causes = sorted(
+            list(group.get("fingerprints") or set()),
+            key=lambda item: len(item),
+            reverse=True,
+        )[:3]
+
+        output_groups.append(
+            {
+                "tenant_id": group["tenant_id"],
+                "environment": group["environment"],
+                "incidents_count": group["incidents_count"],
+                "severity_breakdown": sev_break,
+                "projects_count": len(group.get("projects") or set()),
+                "projects": sorted(list(group.get("projects") or set()))[:20],
+                "fingerprints_count": len(group.get("fingerprints") or set()),
+                "top_causes": top_causes,
+                "impact_score": impact_score,
+                "impact_tier": impact_tier,
+                "latest_at": group.get("latest_at"),
+                "incident_ids": list(group.get("incident_ids") or [])[:30],
+            }
+        )
+
+    output_groups.sort(
+        key=lambda item: (int(item.get("impact_score") or 0), int(item.get("incidents_count") or 0), str(item.get("latest_at") or "")),
+        reverse=True,
+    )
+
+    return {
+        "phase": "phase-20-incident-correlation",
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "status": (request.status or "").strip().lower() or None,
+            "days": int(request.days),
+            "limit": int(request.limit),
+        },
+        "groups_count": len(output_groups),
+        "groups": output_groups,
+    }
+
+
+def _phase20_correlation_impact_summary(request: AssistantIncidentCorrelationRequest) -> dict[str, Any]:
+    correlated = _phase20_correlate_incidents(request)
+    groups = list(correlated.get("groups") or [])
+    by_tier: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    total_impact = 0
+    total_incidents = 0
+    for group in groups:
+        tier = str(group.get("impact_tier") or "low")
+        by_tier[tier] = int(by_tier.get(tier, 0)) + 1
+        total_impact += int(group.get("impact_score") or 0)
+        total_incidents += int(group.get("incidents_count") or 0)
+
+    top_groups = groups[:5]
+    recommendations: list[str] = []
+    if by_tier.get("critical", 0) > 0:
+        recommendations.append("Escalone imediatamente os grupos criticos com runbook de contingencia e owner dedicado.")
+    if by_tier.get("high", 0) > 0:
+        recommendations.append("Priorize os grupos high por impacto agregado e consolide planos por tenant/ambiente.")
+    if not recommendations:
+        recommendations.append("Sem grupos criticos/high; manter monitoramento continuo e revisao diaria de tendencia.")
+
+    return {
+        "phase": "phase-20-correlation-impact-summary",
+        "filters": correlated.get("filters"),
+        "groups_count": len(groups),
+        "total_incidents": total_incidents,
+        "total_impact_score": total_impact,
+        "impact_tiers": by_tier,
+        "top_groups": top_groups,
+        "recommendations": recommendations,
     }
 
 
@@ -6582,6 +6746,46 @@ def assistant_incidents_deduplicate(request: AssistantIncidentDedupRequest) -> d
     return {"ok": True, "result": _phase19_deduplicate_incidents(request)}
 
 
+@app.get("/assistant/incidents/correlation")
+def assistant_incidents_correlation(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    status: str = Query(default="open"),
+    days: int = Query(default=7, ge=1, le=90),
+    limit: int = Query(default=5000, ge=100, le=50000),
+) -> dict[str, Any]:
+    request = AssistantIncidentCorrelationRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        status=status,
+        days=days,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase20_correlate_incidents(request)}
+
+
+@app.get("/assistant/incidents/correlation/impact")
+def assistant_incidents_correlation_impact(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    status: str = Query(default="open"),
+    days: int = Query(default=7, ge=1, le=90),
+    limit: int = Query(default=5000, ge=100, le=50000),
+) -> dict[str, Any]:
+    request = AssistantIncidentCorrelationRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        status=status,
+        days=days,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase20_correlation_impact_summary(request)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -6728,6 +6932,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase17_auto_incident_closure": True,
             "assistant_phase18_incident_regression_reopen": True,
             "assistant_phase19_incident_deduplication": True,
+            "assistant_phase20_multi_scope_correlation": True,
         },
         "projects_root": str(project_root()),
     }

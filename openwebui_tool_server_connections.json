@@ -61,6 +61,8 @@
           "assistant_incidents_close_resolved",
           "assistant_incidents_reopen_regressed",
           "assistant_incidents_deduplicate",
+          "assistant_incidents_correlation",
+          "assistant_incidents_correlation_impact",
           "health",
           "workspace_list",
           "workspace_search",
