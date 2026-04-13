@@ -118,5 +118,15 @@
       "escalonamento"
     ],
     "content": "Atue no modo Fase 5. Monitore o aging de checkpoints pendentes, resuma o estado SLA, destaque alertas warning e critical e acione escalonamento automatico quando o prazo operacional for excedido."
+  },
+  {
+    "command": "fase6-filas-operacionais",
+    "name": "Fase 6 Filas Operacionais",
+    "tags": [
+      "fase6",
+      "operacoes",
+      "compliance"
+    ],
+    "content": "Atue no modo Fase 6. Separe os itens operacionais em filas independentes de risco, SLA e compliance, use o dashboard consolidado para priorizacao e escale somente a fila correta com justificativa objetiva."
   }
 ]

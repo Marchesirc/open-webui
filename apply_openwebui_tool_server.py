@@ -86,6 +86,9 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_checkpoints_cleanup",
     "assistant_sla_summary",
     "assistant_checkpoints_escalate",
+    "assistant_operations_dashboard",
+    "assistant_operations_policies",
+    "assistant_operations_escalate",
     "health",
     "workspace_list",
     "workspace_search",
@@ -213,6 +216,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 5", "sla e escalonamento"],
         "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
+    },
+    {
+        "title": ["Fase 6", "filas operacionais"],
+        "content": "Execute a Fase 6: separe filas de risco, SLA e compliance, consulte dashboard operacional consolidado, aplique politicas independentes por fila e escale apenas o dominio correto."
     }
 ]
 
@@ -288,6 +295,12 @@ FIXED_PROMPTS = [
         "name": "Fase 5 SLA e Escalonamento",
         "tags": ["fase5", "sla", "escalonamento"],
         "content": "Atue no modo Fase 5. Monitore o aging de checkpoints pendentes, resuma o estado SLA, destaque alertas warning e critical e acione escalonamento automatico quando o prazo operacional for excedido."
+    },
+    {
+        "command": "fase6-filas-operacionais",
+        "name": "Fase 6 Filas Operacionais",
+        "tags": ["fase6", "operacoes", "compliance"],
+        "content": "Atue no modo Fase 6. Separe os itens operacionais em filas independentes de risco, SLA e compliance, use o dashboard consolidado para priorizacao e escale somente a fila correta com justificativa objetiva."
     }
 ]
 

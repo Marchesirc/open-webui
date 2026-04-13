@@ -520,6 +520,13 @@ class AssistantCheckpointEscalationRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class AssistantOperationsEscalationRequest(BaseModel):
+    queues: list[str] = Field(default_factory=lambda: ["risk", "sla", "compliance"])
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2826,6 +2833,24 @@ _PHASE4_HIGH_IMPACT_TERMS = {
 _PHASE5_SLA_WARNING_HOURS = 4
 _PHASE5_SLA_CRITICAL_HOURS = 24
 
+_PHASE6_QUEUE_POLICIES: dict[str, dict[str, Any]] = {
+    "risk": {
+        "eligible_risk_levels": ["high", "critical"],
+        "default_action": "manual-review",
+        "escalation_levels": {"high": "sev3", "critical": "sev2"},
+    },
+    "sla": {
+        "eligible_states": ["warning", "critical"],
+        "default_action": "aging-monitor",
+        "escalation_levels": {"warning": "sev3", "critical": "sev2"},
+    },
+    "compliance": {
+        "requires_quality_pass": True,
+        "default_action": "contract-remediation",
+        "escalation_levels": {"warning": "sev4", "critical": "sev3"},
+    },
+}
+
 
 def _tokenize_text(text: str) -> set[str]:
     normalized = re.sub(r"[^a-z0-9_\-\s]", " ", (text or "").lower())
@@ -3001,8 +3026,6 @@ def _phase5_enrich_checkpoint_sla(
     if created_at is not None:
         age_hours = round(max((datetime.now() - created_at).total_seconds(), 0.0) / 3600.0, 2)
 
-    risk = checkpoint.get("risk") or {}
-    risk_level = str(risk.get("risk_level") or "unknown").strip().lower()
     status = str(checkpoint.get("status") or "").strip().lower()
 
     sla_state = "healthy"
@@ -3014,9 +3037,9 @@ def _phase5_enrich_checkpoint_sla(
 
     escalation_level = "none"
     if status == "pending":
-        if sla_state == "critical" or risk_level == "critical":
+        if sla_state == "critical":
             escalation_level = "sev2"
-        elif sla_state == "warning" or risk_level == "high":
+        elif sla_state == "warning":
             escalation_level = "sev3"
 
     enriched["sla"] = {
@@ -3104,6 +3127,129 @@ def _phase5_escalate_pending_checkpoints(
 
     return {
         "phase": "phase-5-sla-escalation",
+        "thresholds": {
+            "warning_after_hours": warning_after_hours,
+            "critical_after_hours": critical_after_hours,
+        },
+        "count": len(escalated_items),
+        "items": escalated_items,
+    }
+
+
+def _phase6_build_operational_queues(
+    warning_after_hours: int = _PHASE5_SLA_WARNING_HOURS,
+    critical_after_hours: int = _PHASE5_SLA_CRITICAL_HOURS,
+    limit: int = 100,
+) -> dict[str, Any]:
+    records = [_phase5_enrich_checkpoint_sla(item, warning_after_hours, critical_after_hours) for item in _to_checkpoint_latest_records()[:limit]]
+
+    risk_queue: list[dict[str, Any]] = []
+    sla_queue: list[dict[str, Any]] = []
+    compliance_queue: list[dict[str, Any]] = []
+
+    for item in records:
+        status = str(item.get("status") or "").strip().lower()
+        risk = item.get("risk") or {}
+        quality = item.get("quality") or {}
+        risk_level = str(risk.get("risk_level") or "unknown").strip().lower()
+        sla_state = str(item.get("sla", {}).get("state") or "healthy").strip().lower()
+        quality_pass = bool(quality.get("pass", True))
+        missing_sections = list(quality.get("missing_sections") or [])
+
+        if status in {"pending", "escalated"} and risk_level in {"high", "critical"}:
+            queue_item = dict(item)
+            queue_item["queue"] = "risk"
+            queue_item["queue_reason"] = f"risk_level={risk_level}"
+            queue_item["queue_priority"] = _PHASE6_QUEUE_POLICIES["risk"]["escalation_levels"].get(risk_level, "sev4")
+            risk_queue.append(queue_item)
+
+        if status == "pending" and sla_state in {"warning", "critical"}:
+            queue_item = dict(item)
+            queue_item["queue"] = "sla"
+            queue_item["queue_reason"] = f"sla_state={sla_state}"
+            queue_item["queue_priority"] = _PHASE6_QUEUE_POLICIES["sla"]["escalation_levels"].get(sla_state, "sev4")
+            sla_queue.append(queue_item)
+
+        if status in {"pending", "escalated", "rejected"} and (not quality_pass or missing_sections):
+            compliance_state = "critical" if len(missing_sections) >= 3 else "warning"
+            queue_item = dict(item)
+            queue_item["queue"] = "compliance"
+            queue_item["queue_reason"] = "missing_required_sections" if missing_sections else "quality_gate_failed"
+            queue_item["queue_priority"] = _PHASE6_QUEUE_POLICIES["compliance"]["escalation_levels"].get(compliance_state, "sev4")
+            queue_item["compliance_state"] = compliance_state
+            compliance_queue.append(queue_item)
+
+    alerts: list[str] = []
+    if risk_queue:
+        alerts.append(f"{len(risk_queue)} item(ns) na fila de risco")
+    if sla_queue:
+        alerts.append(f"{len(sla_queue)} item(ns) na fila de SLA")
+    if compliance_queue:
+        alerts.append(f"{len(compliance_queue)} item(ns) na fila de compliance")
+    if not alerts:
+        alerts.append("Nenhuma fila operacional requer acao")
+
+    return {
+        "phase": "phase-6-operations-dashboard",
+        "thresholds": {
+            "warning_after_hours": warning_after_hours,
+            "critical_after_hours": critical_after_hours,
+        },
+        "policies": _PHASE6_QUEUE_POLICIES,
+        "counts": {
+            "risk": len(risk_queue),
+            "sla": len(sla_queue),
+            "compliance": len(compliance_queue),
+            "total_records": len(records),
+        },
+        "alerts": alerts,
+        "queues": {
+            "risk": risk_queue,
+            "sla": sla_queue,
+            "compliance": compliance_queue,
+        },
+    }
+
+
+def _phase6_escalate_operational_queues(
+    queues: list[str],
+    warning_after_hours: int = _PHASE5_SLA_WARNING_HOURS,
+    critical_after_hours: int = _PHASE5_SLA_CRITICAL_HOURS,
+    limit: int = 50,
+) -> dict[str, Any]:
+    normalized_queues = [str(queue).strip().lower() for queue in queues if str(queue).strip()]
+    if not normalized_queues:
+        normalized_queues = ["risk", "sla", "compliance"]
+
+    dashboard = _phase6_build_operational_queues(warning_after_hours, critical_after_hours, limit=200)
+    escalated_items: list[dict[str, Any]] = []
+
+    for queue_name in normalized_queues:
+        queue_items = list((dashboard.get("queues") or {}).get(queue_name, []))
+        for item in queue_items:
+            if len(escalated_items) >= limit:
+                break
+            escalation_entry = {
+                "checkpoint_id": item.get("checkpoint_id"),
+                "status": "escalated",
+                "decision": f"escalate-{queue_name}",
+                "note": f"Escalonamento fase 6 da fila {queue_name}: {item.get('queue_reason')}",
+                "objective": item.get("objective"),
+                "task_type": item.get("task_type"),
+                "risk": item.get("risk", {}),
+                "sla": item.get("sla", {}),
+                "queue": queue_name,
+                "queue_priority": item.get("queue_priority"),
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+            _append_checkpoint(escalation_entry)
+            escalated_items.append(escalation_entry)
+        if len(escalated_items) >= limit:
+            break
+
+    return {
+        "phase": "phase-6-operations-escalation",
+        "queues": normalized_queues,
         "thresholds": {
             "warning_after_hours": warning_after_hours,
             "critical_after_hours": critical_after_hours,
@@ -3828,6 +3974,35 @@ def assistant_checkpoints_escalate(request: AssistantCheckpointEscalationRequest
     return {"ok": True, "result": result}
 
 
+@app.get("/assistant/operations/dashboard")
+def assistant_operations_dashboard(
+    warning_after_hours: int = Query(default=_PHASE5_SLA_WARNING_HOURS, ge=1, le=720),
+    critical_after_hours: int = Query(default=_PHASE5_SLA_CRITICAL_HOURS, ge=1, le=1440),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    if critical_after_hours < warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    return {"ok": True, "result": _phase6_build_operational_queues(warning_after_hours, critical_after_hours, limit)}
+
+
+@app.get("/assistant/operations/policies")
+def assistant_operations_policies() -> dict[str, Any]:
+    return {"ok": True, "phase": "phase-6-operations-policies", "policies": _PHASE6_QUEUE_POLICIES}
+
+
+@app.post("/assistant/operations/escalate")
+def assistant_operations_escalate(request: AssistantOperationsEscalationRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    result = _phase6_escalate_operational_queues(
+        queues=request.queues,
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+    )
+    return {"ok": True, "result": result}
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -3855,6 +4030,9 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase4_checkpoint_audit": True,
             "assistant_phase5_sla": True,
             "assistant_phase5_escalation": True,
+            "assistant_phase6_operations_dashboard": True,
+            "assistant_phase6_operations_policies": True,
+            "assistant_phase6_operations_escalation": True,
         },
         "projects_root": str(project_root()),
     }

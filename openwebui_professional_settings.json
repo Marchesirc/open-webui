@@ -36,6 +36,9 @@
             "assistant_checkpoints_cleanup",
             "assistant_sla_summary",
             "assistant_checkpoints_escalate",
+            "assistant_operations_dashboard",
+            "assistant_operations_policies",
+            "assistant_operations_escalate",
             "health",
             "workspace_list",
             "workspace_search",
@@ -175,6 +178,13 @@
         "sla e escalonamento"
       ],
       "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
+    },
+    {
+      "title": [
+        "Fase 6",
+        "filas operacionais"
+      ],
+      "content": "Execute a Fase 6: separe filas de risco, SLA e compliance, consulte dashboard operacional consolidado, aplique politicas independentes por fila e escale apenas o dominio correto."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -263,6 +273,13 @@
           "sla e escalonamento"
         ],
         "content": "Execute a Fase 5: monitore aging de checkpoints pendentes, gere resumo SLA operacional, acione escalonamento automatico para itens fora do prazo e mantenha trilha de alerta objetiva."
+      },
+      {
+        "title": [
+          "Fase 6",
+          "filas operacionais"
+        ],
+        "content": "Execute a Fase 6: separe filas de risco, SLA e compliance, consulte dashboard operacional consolidado, aplique politicas independentes por fila e escale apenas o dominio correto."
       }
     ],
     "default_locale": "pt-BR",
