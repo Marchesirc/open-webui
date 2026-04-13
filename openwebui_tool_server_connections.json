@@ -43,6 +43,7 @@
           "assistant_executive_policy",
           "assistant_executive_policy_list",
           "assistant_executive_dashboard_scoped_policy",
+          "assistant_executive_policy_enforce",
           "assistant_checkpoints_deduplicate",
           "assistant_executive_report",
           "assistant_executive_report_snapshot",

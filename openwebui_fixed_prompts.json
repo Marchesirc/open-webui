@@ -208,5 +208,15 @@
       "compliance"
     ],
     "content": "Atue no modo Fase 14. Registre trilha completa de operacoes, liste logs filtrados por operacao/status/tenant/ambiente com prazo configuravel, e exponha sumario consolidado de conformidade para validacao regulatoria."
+  },
+  {
+    "command": "fase15-enforcement-politica",
+    "name": "Fase 15 Enforcement de Politica",
+    "tags": [
+      "fase15",
+      "enforcement",
+      "remediacao"
+    ],
+    "content": "Atue no modo Fase 15. Quando uma politica scoped falhar, execute remediacao automatica segura (rodar agendas vencidas e gerar snapshot), reavalie conformidade e registre trilha de auditoria da acao."
   }
 ]

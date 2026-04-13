@@ -94,6 +94,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_executive_policy",
     "assistant_executive_policy_list",
     "assistant_executive_dashboard_scoped_policy",
+    "assistant_executive_policy_enforce",
     "assistant_checkpoints_deduplicate",
     "assistant_executive_report",
     "assistant_executive_report_snapshot",
@@ -268,6 +269,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 14", "auditoria e conformidade"],
         "content": "Execute a Fase 14: registre trilha completa de operacoes de politicas, liste logs filtrados por operacao, status, tenant e ambiente, e exponga sumario de conformidade para rastreabilidade regulatoria."
+    },
+    {
+        "title": ["Fase 15", "enforcement automatico"],
+        "content": "Execute a Fase 15: avalie conformidade por escopo e, em caso de falha, aplique remediacao automatica com execucao de agendas vencidas e geracao de snapshot para restaurar cobertura operacional."
     }
 ]
 
@@ -397,6 +402,12 @@ FIXED_PROMPTS = [
         "name": "Fase 14 Auditoria e Logs de Conformidade",
         "tags": ["fase14", "auditoria", "compliance"],
         "content": "Atue no modo Fase 14. Registre trilha completa de operacoes, liste logs filtrados por operacao/status/tenant/ambiente com prazo configuravel, e exponha sumario consolidado de conformidade para validacao regulatoria."
+    },
+    {
+        "command": "fase15-enforcement-politica",
+        "name": "Fase 15 Enforcement de Politica",
+        "tags": ["fase15", "enforcement", "remediacao"],
+        "content": "Atue no modo Fase 15. Quando uma politica scoped falhar, execute remediacao automatica segura (rodar agendas vencidas e gerar snapshot), reavalie conformidade e registre trilha de auditoria da acao."
     }
 ]
 

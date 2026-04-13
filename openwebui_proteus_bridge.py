@@ -617,13 +617,27 @@ class AssistantScopedPolicyRequest(BaseModel):
 
 
 class AssistantAuditLogRequest(BaseModel):
-    operation: str = Field(..., description="policy_upsert|policy_list|policy_evaluate|policy_delete")
+    operation: str = Field(..., description="policy_upsert|policy_list|policy_evaluate|policy_delete|policy_enforce")
     environment: str = Field(default="default", min_length=1, max_length=80)
     tenant_id: str = Field(default="shared", min_length=1, max_length=80)
     project_scope: str = Field(default="general", min_length=1, max_length=120)
     details: dict[str, Any] = Field(default_factory=dict)
     status: str = Field(default="success", description="success|failure|warning")
     error_message: Optional[str] = None
+
+
+class AssistantPolicyEnforcementRequest(BaseModel):
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    run_due_schedules_on_fail: bool = True
+    create_snapshot_on_fail: bool = True
+    snapshot_formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
+    dry_run: bool = False
 
 
 def project_root() -> Path:
@@ -4020,6 +4034,127 @@ def _phase14_audit_summary_by_operation(
     }
 
 
+def _phase15_enforce_scoped_policy(request: AssistantPolicyEnforcementRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+
+    scope = _phase11_scope_context(
+        environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
+    )
+    policy = _phase13_find_policy(scope)
+
+    dashboard_before = _phase12_build_scoped_dashboard(
+        days=request.days,
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+        environment=scope["environment"],
+        tenant_id=scope["tenant_id"],
+        project_scope=scope["project_scope"],
+    )
+    evaluation_before = _phase13_evaluate_scoped_policy(policy, dashboard_before)
+
+    actions: list[dict[str, Any]] = []
+    should_enforce = bool(
+        evaluation_before.get("policy_found")
+        and evaluation_before.get("policy_enabled")
+        and not evaluation_before.get("pass")
+    )
+
+    if should_enforce and request.run_due_schedules_on_fail:
+        if request.dry_run:
+            actions.append({"action": "run_due_schedules", "planned": True})
+        else:
+            runner_result = _phase10_run_due_schedules(
+                environment=scope["environment"],
+                tenant_id=scope["tenant_id"],
+                project_scope=scope["project_scope"],
+                force=True,
+                limit=1,
+            )
+            actions.append(
+                {
+                    "action": "run_due_schedules",
+                    "planned": False,
+                    "executed_count": int(runner_result.get("count") or 0),
+                    "result": runner_result,
+                }
+            )
+
+    if should_enforce and request.create_snapshot_on_fail:
+        if request.dry_run:
+            actions.append({"action": "create_snapshot", "planned": True, "formats": request.snapshot_formats})
+        else:
+            snapshot_result = _phase9_publish_snapshot(
+                formats=request.snapshot_formats,
+                days=request.days,
+                warning_after_hours=request.warning_after_hours,
+                critical_after_hours=request.critical_after_hours,
+                limit=request.limit,
+                snapshot_name=f"policy_enforce_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                environment=scope["environment"],
+                tenant_id=scope["tenant_id"],
+                project_scope=scope["project_scope"],
+                schedule_id="policy_enforce",
+            )
+            actions.append(
+                {
+                    "action": "create_snapshot",
+                    "planned": False,
+                    "formats": request.snapshot_formats,
+                    "snapshot_id": ((snapshot_result.get("snapshot") or {}).get("snapshot_id")),
+                    "result": snapshot_result,
+                }
+            )
+
+    dashboard_after = dashboard_before
+    evaluation_after = evaluation_before
+    if should_enforce and not request.dry_run and actions:
+        dashboard_after = _phase12_build_scoped_dashboard(
+            days=request.days,
+            warning_after_hours=request.warning_after_hours,
+            critical_after_hours=request.critical_after_hours,
+            limit=request.limit,
+            environment=scope["environment"],
+            tenant_id=scope["tenant_id"],
+            project_scope=scope["project_scope"],
+        )
+        evaluation_after = _phase13_evaluate_scoped_policy(policy, dashboard_after)
+
+    result = {
+        "phase": "phase-15-policy-enforcement",
+        "scope": scope,
+        "dry_run": bool(request.dry_run),
+        "policy": policy,
+        "evaluation_before": evaluation_before,
+        "actions": actions,
+        "evaluation_after": evaluation_after,
+        "enforcement_executed": bool(should_enforce and actions),
+        "compliance_restored": bool((not evaluation_before.get("pass")) and evaluation_after.get("pass")),
+    }
+
+    audit_status = "success" if bool(evaluation_after.get("pass")) else "warning"
+    _phase14_record_audit_log(
+        AssistantAuditLogRequest(
+            operation="policy_enforce",
+            environment=scope["environment"],
+            tenant_id=scope["tenant_id"],
+            project_scope=scope["project_scope"],
+            status=audit_status,
+            details={
+                "dry_run": bool(request.dry_run),
+                "actions_count": len(actions),
+                "pass_before": bool(evaluation_before.get("pass")),
+                "pass_after": bool(evaluation_after.get("pass")),
+            },
+        ),
+        result=result,
+    )
+    return result
+
+
 def _phase11_resolve_snapshot_dir(entry: dict[str, Any]) -> Optional[Path]:
     snapshot_dir = str(entry.get("snapshot_dir") or "").strip()
     if snapshot_dir:
@@ -5616,6 +5751,11 @@ def assistant_executive_dashboard_scoped_policy(
     }
 
 
+@app.post("/assistant/executive/policy/enforce")
+def assistant_executive_policy_enforce(request: AssistantPolicyEnforcementRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase15_enforce_scoped_policy(request)}
+
+
 @app.post("/assistant/audit-log")
 def assistant_audit_log(request: AssistantAuditLogRequest) -> dict[str, Any]:
     result = _phase14_record_audit_log(request)
@@ -5801,6 +5941,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase12_scoped_dashboard": True,
             "assistant_phase13_scoped_policy": True,
             "assistant_phase14_audit_logs": True,
+            "assistant_phase15_policy_enforcement": True,
         },
         "projects_root": str(project_root()),
     }
