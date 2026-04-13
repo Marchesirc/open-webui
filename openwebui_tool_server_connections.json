@@ -76,6 +76,8 @@
           "assistant_routing_rules_delete",
           "assistant_incidents_auto_ack_assign",
           "assistant_incidents_sla_breach_forecast",
+          "assistant_incidents_remediation_run",
+          "assistant_incidents_remediation_history",
           "health",
           "workspace_list",
           "workspace_search",

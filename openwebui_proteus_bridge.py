@@ -804,6 +804,19 @@ class AssistantPhase27SlaForecastRequest(BaseModel):
     limit: int = Field(default=5000, ge=10, le=50000)
 
 
+class AssistantPhase28RemediationRunRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=7, ge=1, le=90)
+    risk_tiers: list[str] = Field(default_factory=lambda: ["breached", "critical", "high"])
+    approval_required: bool = Field(default=True)
+    approved: bool = Field(default=False)
+    dry_run: bool = Field(default=False)
+    max_actions_per_incident: int = Field(default=3, ge=1, le=10)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3095,6 +3108,7 @@ _REPORTS_INCIDENTS_FILE = _REPORTS_DIR / "incidents.jsonl"
 _REPORTS_PLAYBOOKS_FILE = _REPORTS_DIR / "preventive_playbooks.jsonl"
 _REPORTS_POSTMORTEMS_FILE = _REPORTS_DIR / "postmortems.jsonl"
 _REPORTS_ROUTING_FILE = _REPORTS_DIR / "routing_rules.json"
+_REPORTS_REMEDIATIONS_FILE = _REPORTS_DIR / "remediation_runs.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -5982,6 +5996,166 @@ def _phase27_sla_breach_forecast(request: AssistantPhase27SlaForecastRequest) ->
     }
 
 
+# ── Phase 28: Auto-Remediacao Guiada por Playbook ───────────────────────────
+
+def _load_remediation_runs() -> list[dict[str, Any]]:
+    if not _REPORTS_REMEDIATIONS_FILE.exists():
+        return []
+    try:
+        items: list[dict[str, Any]] = []
+        with open(_REPORTS_REMEDIATIONS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                items.append(json.loads(line))
+        return items
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_REMEDIATIONS_FILE}: {exc}") from exc
+
+
+def _save_remediation_run(entry: dict[str, Any]) -> None:
+    _REPORTS_REMEDIATIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_REMEDIATIONS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar remediation run em {_REPORTS_REMEDIATIONS_FILE}: {exc}") from exc
+
+
+def _phase28_build_remediation_actions(risk_tier: str, max_actions_per_incident: int) -> list[dict[str, Any]]:
+    risk = str(risk_tier or "").strip().lower()
+    actions: list[dict[str, Any]] = []
+    if risk in {"breached", "critical"}:
+        actions.extend(
+            [
+                {
+                    "action": "collect_diagnostics",
+                    "params": {"include": ["health", "recent_logs", "routing"]},
+                    "safe": True,
+                },
+                {
+                    "action": "restart_service_guarded",
+                    "params": {"service": "openwebui_bridge", "max_restarts": 1},
+                    "safe": True,
+                },
+                {
+                    "action": "recheck_sla_risk",
+                    "params": {"window_minutes": 5},
+                    "safe": True,
+                },
+            ]
+        )
+    elif risk == "high":
+        actions.extend(
+            [
+                {
+                    "action": "collect_diagnostics",
+                    "params": {"include": ["health", "recent_logs"]},
+                    "safe": True,
+                },
+                {
+                    "action": "recheck_sla_risk",
+                    "params": {"window_minutes": 10},
+                    "safe": True,
+                },
+            ]
+        )
+    elif risk == "medium":
+        actions.append(
+            {
+                "action": "collect_diagnostics",
+                "params": {"include": ["health"]},
+                "safe": True,
+            }
+        )
+
+    return actions[: max(1, int(max_actions_per_incident))]
+
+
+def _phase28_run_auto_remediation(request: AssistantPhase28RemediationRunRequest) -> dict[str, Any]:
+    risk_tiers = {str(t or "").strip().lower() for t in list(request.risk_tiers or []) if str(t or "").strip()}
+    if not risk_tiers:
+        risk_tiers = {"breached", "critical", "high"}
+
+    forecast = _phase27_sla_breach_forecast(
+        AssistantPhase27SlaForecastRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status="open",
+            days=int(request.days),
+            limit=int(request.limit),
+        )
+    )
+    candidates = [i for i in list(forecast.get("incidents") or []) if str(i.get("risk_tier") or "").strip().lower() in risk_tiers]
+
+    approval_blocked = bool(request.approval_required and not request.approved)
+    dry_mode = bool(request.dry_run or approval_blocked)
+
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    runs: list[dict[str, Any]] = []
+    for item in candidates:
+        incident_id = str(item.get("incident_id") or "")
+        risk_tier = str(item.get("risk_tier") or "low").strip().lower()
+        run = {
+            "phase": "phase-28-auto-remediation",
+            "run_id": f"rem-{datetime.now().strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 100000}",
+            "created_at": now_iso,
+            "incident_id": incident_id,
+            "risk_tier": risk_tier,
+            "owner": item.get("owner"),
+            "channel": item.get("channel"),
+            "approval_required": bool(request.approval_required),
+            "approved": bool(request.approved),
+            "dry_run": dry_mode,
+            "status": "planned" if dry_mode else "executed",
+            "actions": _phase28_build_remediation_actions(risk_tier, request.max_actions_per_incident),
+        }
+        runs.append(run)
+        if not dry_mode:
+            _save_remediation_run(run)
+
+    return {
+        "phase": "phase-28-auto-remediation",
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "days": int(request.days),
+            "risk_tiers": sorted(risk_tiers),
+            "limit": int(request.limit),
+        },
+        "approval_blocked": approval_blocked,
+        "dry_run": dry_mode,
+        "total_candidates": len(candidates),
+        "runs_generated": len(runs),
+        "runs": runs,
+    }
+
+
+def _phase28_remediation_history(days: int = 30, limit: int = 200) -> dict[str, Any]:
+    runs = _load_remediation_runs()
+    cutoff = (datetime.now() - timedelta(days=max(1, int(days)))).isoformat(timespec="seconds")
+    filtered = [r for r in runs if str(r.get("created_at") or "") >= cutoff]
+    filtered.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    filtered = filtered[: max(1, int(limit))]
+
+    by_status: dict[str, int] = {}
+    for row in filtered:
+        st = str(row.get("status") or "unknown")
+        by_status[st] = int(by_status.get(st, 0)) + 1
+
+    return {
+        "phase": "phase-28-remediation-history",
+        "days": int(days),
+        "limit": int(limit),
+        "total": len(filtered),
+        "by_status": by_status,
+        "runs": filtered,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -7979,6 +8153,19 @@ def assistant_incidents_sla_breach_forecast(
     return {"ok": True, "result": _phase27_sla_breach_forecast(request)}
 
 
+@app.post("/assistant/incidents/remediation/run")
+def assistant_incidents_remediation_run(request: AssistantPhase28RemediationRunRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase28_run_auto_remediation(request)}
+
+
+@app.get("/assistant/incidents/remediation/history")
+def assistant_incidents_remediation_history(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase28_remediation_history(days=days, limit=limit)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -8134,6 +8321,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase26_routing_matrix": True,
             "assistant_phase27_auto_ack_assignment": True,
             "assistant_phase27_sla_breach_predictor": True,
+            "assistant_phase28_auto_remediation": True,
         },
         "projects_root": str(project_root()),
     }

@@ -127,6 +127,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_routing_rules_delete",
     "assistant_incidents_auto_ack_assign",
     "assistant_incidents_sla_breach_forecast",
+    "assistant_incidents_remediation_run",
+    "assistant_incidents_remediation_history",
     "health",
     "workspace_list",
     "workspace_search",
@@ -525,6 +527,12 @@ FIXED_PROMPTS = [
         "name": "Fase 27 Auto Ack Assignment e Preditor SLA",
         "tags": ["fase27", "auto-ack", "assignment", "sla"],
         "content": "Atue no modo Fase 27. Aplique auto-ack e auto-assignment para incidentes abertos usando matriz de roteamento por tier/tenant/ambiente, e gere previsao de violacao de SLA com risco por incidente para priorizacao operacional imediata."
+    },
+    {
+        "command": "fase28-auto-remediacao",
+        "name": "Fase 28 Auto Remediacao Guiada por Playbook",
+        "tags": ["fase28", "auto-remediacao", "playbook", "approval"],
+        "content": "Atue no modo Fase 28. Execute remediacao automatizada para incidentes com risco alto de SLA usando playbooks seguros, com suporte a dry-run e aprovacao explicita antes da execucao efetiva."
     }
 ]
 
