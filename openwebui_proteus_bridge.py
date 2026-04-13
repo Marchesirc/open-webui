@@ -786,6 +786,24 @@ class AssistantPhase26RoutingResolveRequest(BaseModel):
     environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
 
 
+class AssistantPhase27AutoAckAssignRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    ack_note: Optional[str] = Field(default=None, min_length=1, max_length=300)
+    dry_run: bool = Field(default=False)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
+class AssistantPhase27SlaForecastRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    status: str = Field(default="open")
+    days: int = Field(default=7, ge=1, le=90)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -5738,6 +5756,232 @@ def _phase26_delete_rule(rule_id: str) -> dict[str, Any]:
     return {"phase": "phase-26-routing-delete", "deleted_rule_id": rule_id.strip(), "rules_remaining": len(rules)}
 
 
+# ── Phase 27: Auto-Ack + SLA Breach Predictor ───────────────────────────────
+
+_PHASE27_SEVERITY_TO_TIER: dict[str, str] = {
+    "sev1": "critical",
+    "sev2": "high",
+    "sev3": "medium",
+    "sev4": "low",
+}
+
+_PHASE27_DEFAULT_SLA_MINUTES: dict[str, int] = {
+    "critical": 30,
+    "high": 60,
+    "medium": 240,
+    "low": 480,
+}
+
+
+def _phase27_incident_tier(incident: dict[str, Any]) -> str:
+    severity = str(incident.get("severity") or "").strip().lower()
+    return _PHASE27_SEVERITY_TO_TIER.get(severity, "medium")
+
+
+def _phase27_scope_matches(incident: dict[str, Any], environment: Optional[str], tenant_id: Optional[str], project_scope: Optional[str]) -> bool:
+    scope = dict(incident.get("scope") or {})
+    env_v = str(scope.get("environment") or "").strip().lower()
+    tid_v = str(scope.get("tenant_id") or "").strip().lower()
+    ps_v = str(scope.get("project_scope") or "").strip().lower()
+    env_f = (environment or "").strip().lower()
+    tid_f = (tenant_id or "").strip().lower()
+    ps_f = (project_scope or "").strip().lower()
+    if env_f and env_v != env_f:
+        return False
+    if tid_f and tid_v != tid_f:
+        return False
+    if ps_f and ps_v != ps_f:
+        return False
+    return True
+
+
+def _phase27_elapsed_minutes(incident: dict[str, Any]) -> Optional[float]:
+    created_at = str(incident.get("created_at") or "").strip()
+    if not created_at:
+        return None
+    try:
+        dt_created = datetime.fromisoformat(created_at)
+    except Exception:
+        return None
+    return max(round((datetime.now() - dt_created).total_seconds() / 60.0, 1), 0.0)
+
+
+def _phase27_auto_ack_assign(request: AssistantPhase27AutoAckAssignRequest) -> dict[str, Any]:
+    incidents = _load_incidents()
+    updated: list[dict[str, Any]] = []
+    touched: list[dict[str, Any]] = []
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    ack_note = (request.ack_note or "").strip() or "ack automatico por fase 27"
+    processed = 0
+
+    for item in incidents:
+        mutable = dict(item)
+        status = str(mutable.get("status") or "").strip().lower()
+        if status != "open":
+            updated.append(mutable)
+            continue
+        if not _phase27_scope_matches(mutable, request.environment, request.tenant_id, request.project_scope):
+            updated.append(mutable)
+            continue
+        if processed >= int(request.limit):
+            updated.append(mutable)
+            continue
+
+        scope = dict(mutable.get("scope") or {})
+        tier = _phase27_incident_tier(mutable)
+        routing = _phase26_resolve_route(
+            AssistantPhase26RoutingResolveRequest(
+                tier=tier,
+                tenant_id=str(scope.get("tenant_id") or "") or None,
+                environment=str(scope.get("environment") or "") or None,
+            )
+        )
+        rule = dict(routing.get("rule") or {})
+
+        acked_now = False
+        assigned_now = False
+
+        if not str(mutable.get("acknowledged_at") or "").strip():
+            acked_now = True
+            if not request.dry_run:
+                mutable["acknowledged_at"] = now_iso
+                mutable["acknowledged_by"] = "phase-27-auto-ack"
+                mutable["ack_note"] = ack_note
+
+        if bool(routing.get("matched")) and not str(mutable.get("assigned_owner") or "").strip():
+            assigned_now = True
+            if not request.dry_run:
+                mutable["assigned_owner"] = str(rule.get("owner") or "")
+                mutable["assigned_channel"] = str(rule.get("channel") or "")
+                mutable["assigned_priority"] = str(rule.get("priority") or "")
+                mutable["sla_target_minutes"] = int(rule.get("sla_target_minutes") or _PHASE27_DEFAULT_SLA_MINUTES.get(tier, 240))
+                mutable["assignment_source"] = "phase-27-routing-matrix"
+                mutable["assigned_at"] = now_iso
+
+        if acked_now or assigned_now:
+            touched.append(
+                {
+                    "incident_id": str(mutable.get("incident_id") or ""),
+                    "tier": tier,
+                    "acked_now": acked_now,
+                    "assigned_now": assigned_now,
+                    "routing_matched": bool(routing.get("matched")),
+                    "owner": str(rule.get("owner") or "") or None,
+                    "channel": str(rule.get("channel") or "") or None,
+                }
+            )
+        processed += 1
+        updated.append(mutable)
+
+    if touched and not request.dry_run:
+        _save_incidents(updated)
+
+    return {
+        "phase": "phase-27-auto-ack-assignment",
+        "dry_run": bool(request.dry_run),
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "limit": int(request.limit),
+        },
+        "incidents_touched": len(touched),
+        "acks_applied": sum(1 for x in touched if bool(x.get("acked_now"))),
+        "assignments_applied": sum(1 for x in touched if bool(x.get("assigned_now"))),
+        "incidents": touched,
+    }
+
+
+def _phase27_sla_breach_forecast(request: AssistantPhase27SlaForecastRequest) -> dict[str, Any]:
+    incidents = _load_incidents()
+    cutoff = (datetime.now() - timedelta(days=int(request.days))).isoformat(timespec="seconds")
+    status_filter = (request.status or "").strip().lower()
+
+    forecasts: list[dict[str, Any]] = []
+    for item in incidents:
+        incident = dict(item)
+        status = str(incident.get("status") or "").strip().lower()
+        if status_filter and status != status_filter:
+            continue
+        if str(incident.get("created_at") or "") < cutoff:
+            continue
+        if not _phase27_scope_matches(incident, request.environment, request.tenant_id, request.project_scope):
+            continue
+
+        elapsed = _phase27_elapsed_minutes(incident)
+        if elapsed is None:
+            continue
+        tier = _phase27_incident_tier(incident)
+        scope = dict(incident.get("scope") or {})
+
+        explicit_sla = int(incident.get("sla_target_minutes") or 0)
+        routing = _phase26_resolve_route(
+            AssistantPhase26RoutingResolveRequest(
+                tier=tier,
+                tenant_id=str(scope.get("tenant_id") or "") or None,
+                environment=str(scope.get("environment") or "") or None,
+            )
+        )
+        routed_rule = dict(routing.get("rule") or {})
+        routed_sla = int(routed_rule.get("sla_target_minutes") or 0)
+        sla_target = explicit_sla or routed_sla or int(_PHASE27_DEFAULT_SLA_MINUTES.get(tier, 240))
+        breach_ratio = (elapsed / float(sla_target)) if sla_target > 0 else 0.0
+        risk_score = round(min(max(breach_ratio * 100.0, 0.0), 200.0), 1)
+
+        risk_tier = "low"
+        if breach_ratio >= 1.0:
+            risk_tier = "breached"
+        elif breach_ratio >= 0.85:
+            risk_tier = "critical"
+        elif breach_ratio >= 0.60:
+            risk_tier = "high"
+        elif breach_ratio >= 0.35:
+            risk_tier = "medium"
+
+        forecasts.append(
+            {
+                "incident_id": str(incident.get("incident_id") or ""),
+                "status": status,
+                "tier": tier,
+                "tenant_id": str(scope.get("tenant_id") or ""),
+                "environment": str(scope.get("environment") or ""),
+                "project_scope": str(scope.get("project_scope") or ""),
+                "elapsed_minutes": elapsed,
+                "sla_target_minutes": sla_target,
+                "minutes_to_breach": max(round(float(sla_target) - float(elapsed), 1), 0.0),
+                "breach_ratio": round(breach_ratio, 3),
+                "risk_score": risk_score,
+                "risk_tier": risk_tier,
+                "routing_matched": bool(routing.get("matched")),
+                "owner": str(routed_rule.get("owner") or "") or str(incident.get("assigned_owner") or "") or None,
+                "channel": str(routed_rule.get("channel") or "") or str(incident.get("assigned_channel") or "") or None,
+            }
+        )
+
+    forecasts.sort(key=lambda r: (float(r.get("risk_score") or 0), float(r.get("elapsed_minutes") or 0)), reverse=True)
+    forecasts = forecasts[: int(request.limit)]
+
+    by_risk: dict[str, int] = {"breached": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
+    for row in forecasts:
+        risk = str(row.get("risk_tier") or "low")
+        by_risk[risk] = int(by_risk.get(risk, 0)) + 1
+
+    return {
+        "phase": "phase-27-sla-breach-predictor",
+        "filters": {
+            "environment": (request.environment or "").strip().lower() or None,
+            "tenant_id": (request.tenant_id or "").strip().lower() or None,
+            "project_scope": (request.project_scope or "").strip().lower() or None,
+            "status": status_filter or None,
+            "days": int(request.days),
+            "limit": int(request.limit),
+        },
+        "total": len(forecasts),
+        "by_risk_tier": by_risk,
+        "incidents": forecasts,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -7710,6 +7954,31 @@ def assistant_routing_rules_delete(rule_id: str) -> dict[str, Any]:
     return {"ok": True, "result": _phase26_delete_rule(rule_id)}
 
 
+@app.post("/assistant/incidents/auto-ack-assign")
+def assistant_incidents_auto_ack_assign(request: AssistantPhase27AutoAckAssignRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase27_auto_ack_assign(request)}
+
+
+@app.get("/assistant/incidents/sla-breach-forecast")
+def assistant_incidents_sla_breach_forecast(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    status: str = Query(default="open"),
+    days: int = Query(default=7, ge=1, le=90),
+    limit: int = Query(default=5000, ge=10, le=50000),
+) -> dict[str, Any]:
+    request = AssistantPhase27SlaForecastRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        status=status,
+        days=days,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase27_sla_breach_forecast(request)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -7863,6 +8132,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase24_sre_metrics": True,
             "assistant_phase25_anomaly_detection": True,
             "assistant_phase26_routing_matrix": True,
+            "assistant_phase27_auto_ack_assignment": True,
+            "assistant_phase27_sla_breach_predictor": True,
         },
         "projects_root": str(project_root()),
     }

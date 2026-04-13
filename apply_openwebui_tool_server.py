@@ -125,6 +125,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_routing_rules_list",
     "assistant_routing_resolve",
     "assistant_routing_rules_delete",
+    "assistant_incidents_auto_ack_assign",
+    "assistant_incidents_sla_breach_forecast",
     "health",
     "workspace_list",
     "workspace_search",
@@ -517,6 +519,12 @@ FIXED_PROMPTS = [
         "name": "Fase 26 Matriz de Roteamento",
         "tags": ["fase26", "routing", "owner", "sla"],
         "content": "Atue no modo Fase 26. Crie e consulte regras de roteamento por tier, tenant e ambiente para centralizar owner, canal de alerta e SLA target. Resolva o roteamento dinamicamente para qualquer combinacao tier/tenant/env."
+    },
+    {
+        "command": "fase27-auto-ack-sla",
+        "name": "Fase 27 Auto Ack Assignment e Preditor SLA",
+        "tags": ["fase27", "auto-ack", "assignment", "sla"],
+        "content": "Atue no modo Fase 27. Aplique auto-ack e auto-assignment para incidentes abertos usando matriz de roteamento por tier/tenant/ambiente, e gere previsao de violacao de SLA com risco por incidente para priorizacao operacional imediata."
     }
 ]
 
