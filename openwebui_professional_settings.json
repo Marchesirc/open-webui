@@ -42,6 +42,9 @@
             "assistant_executive_dashboard",
             "assistant_checkpoints_deduplicate",
             "assistant_executive_report",
+            "assistant_executive_report_snapshot",
+            "assistant_executive_report_index",
+            "assistant_executive_report_cleanup",
             "health",
             "workspace_list",
             "workspace_search",
@@ -202,6 +205,13 @@
         "relatorio exportavel"
       ],
       "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
+    },
+    {
+      "title": [
+        "Fase 9",
+        "snapshots e retencao"
+      ],
+      "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -311,6 +321,13 @@
           "relatorio exportavel"
         ],
         "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
+      },
+      {
+        "title": [
+          "Fase 9",
+          "snapshots e retencao"
+        ],
+        "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
       }
     ],
     "default_locale": "pt-BR",

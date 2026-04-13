@@ -148,5 +148,15 @@
       "exportacao"
     ],
     "content": "Atue no modo Fase 8. Gere um relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, alertas ativos, tendencias por fila e recomendacoes automaticas para a proxima acao."
+  },
+  {
+    "command": "fase9-snapshots-retencao",
+    "name": "Fase 9 Snapshots e Retencao",
+    "tags": [
+      "fase9",
+      "snapshot",
+      "retencao"
+    ],
+    "content": "Atue no modo Fase 9. Gere snapshots versionados dos relatorios executivos, mantenha um indice consultavel das publicacoes e aplique politicas de retencao historica com limpeza controlada."
   }
 ]

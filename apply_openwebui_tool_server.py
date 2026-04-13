@@ -92,6 +92,9 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_executive_dashboard",
     "assistant_checkpoints_deduplicate",
     "assistant_executive_report",
+    "assistant_executive_report_snapshot",
+    "assistant_executive_report_index",
+    "assistant_executive_report_cleanup",
     "health",
     "workspace_list",
     "workspace_search",
@@ -231,6 +234,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 8", "relatorio exportavel"],
         "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
+    },
+    {
+        "title": ["Fase 9", "snapshots e retencao"],
+        "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
     }
 ]
 
@@ -324,6 +331,12 @@ FIXED_PROMPTS = [
         "name": "Fase 8 Relatorio Executivo Exportavel",
         "tags": ["fase8", "relatorio", "exportacao"],
         "content": "Atue no modo Fase 8. Gere um relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, alertas ativos, tendencias por fila e recomendacoes automaticas para a proxima acao."
+    },
+    {
+        "command": "fase9-snapshots-retencao",
+        "name": "Fase 9 Snapshots e Retencao",
+        "tags": ["fase9", "snapshot", "retencao"],
+        "content": "Atue no modo Fase 9. Gere snapshots versionados dos relatorios executivos, mantenha um indice consultavel das publicacoes e aplique politicas de retencao historica com limpeza controlada."
     }
 ]
 

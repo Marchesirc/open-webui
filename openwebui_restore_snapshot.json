@@ -105,6 +105,13 @@
         "relatorio exportavel"
       ],
       "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
+    },
+    {
+      "title": [
+        "Fase 9",
+        "snapshots e retencao"
+      ],
+      "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
     }
   ],
   "default_prompt_suggestions": [
@@ -212,6 +219,13 @@
         "relatorio exportavel"
       ],
       "content": "Execute a Fase 8: gere relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, tendencias por fila e recomendacoes automaticas de priorizacao."
+    },
+    {
+      "title": [
+        "Fase 9",
+        "snapshots e retencao"
+      ],
+      "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -365,6 +379,16 @@
         "exportacao"
       ],
       "content": "Atue no modo Fase 8. Gere um relatorio executivo exportavel em json, csv ou markdown com snapshot operacional, alertas ativos, tendencias por fila e recomendacoes automaticas para a proxima acao."
+    },
+    {
+      "command": "fase9-snapshots-retencao",
+      "name": "Fase 9 Snapshots e Retencao",
+      "tags": [
+        "fase9",
+        "snapshot",
+        "retencao"
+      ],
+      "content": "Atue no modo Fase 9. Gere snapshots versionados dos relatorios executivos, mantenha um indice consultavel das publicacoes e aplique politicas de retencao historica com limpeza controlada."
     }
   ],
   "bridge_url": "http://127.0.0.1:8001",

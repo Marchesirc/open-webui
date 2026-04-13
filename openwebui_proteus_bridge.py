@@ -543,6 +543,20 @@ class AssistantExecutiveReportRequest(BaseModel):
     output_name: Optional[str] = None
 
 
+class AssistantExecutiveSnapshotRequest(BaseModel):
+    formats: list[str] = Field(default_factory=lambda: ["markdown", "csv", "json"])
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    snapshot_name: Optional[str] = None
+
+
+class AssistantReportCleanupRequest(BaseModel):
+    retention_days: int = Field(default=30, ge=1, le=3650)
+    apply_changes: bool = False
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2825,6 +2839,7 @@ _MEMORY_DIR = BASE_DIR / "assistant_memory"
 _MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
 _CHECKPOINT_FILE = _MEMORY_DIR / "checkpoints.jsonl"
 _REPORTS_DIR = BASE_DIR / "assistant_reports"
+_REPORTS_INDEX_FILE = _REPORTS_DIR / "index.json"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -2869,6 +2884,7 @@ _PHASE6_QUEUE_POLICIES: dict[str, dict[str, Any]] = {
 }
 
 _PHASE7_DEFAULT_DAYS = 7
+_PHASE9_DEFAULT_SNAPSHOT_FORMATS = ["markdown", "csv", "json"]
 
 
 def _tokenize_text(text: str) -> set[str]:
@@ -3454,6 +3470,24 @@ def _phase7_build_executive_dashboard(
 
 def _ensure_reports_storage() -> None:
     _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    if not _REPORTS_INDEX_FILE.exists():
+        _REPORTS_INDEX_FILE.write_text("[]\n", encoding="utf-8")
+
+
+def _load_reports_index() -> list[dict[str, Any]]:
+    _ensure_reports_storage()
+    try:
+        payload = json.loads(_REPORTS_INDEX_FILE.read_text(encoding="utf-8"))
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def _save_reports_index(entries: list[dict[str, Any]]) -> None:
+    _ensure_reports_storage()
+    _REPORTS_INDEX_FILE.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def _phase8_recommendations(executive: dict[str, Any]) -> list[str]:
@@ -3561,6 +3595,32 @@ def _phase8_render_report_content(payload: dict[str, Any], report_format: str) -
     raise HTTPException(status_code=400, detail="report_format invalido: use json, csv ou markdown")
 
 
+def _phase8_build_report_payload(days: int, warning_after_hours: int, critical_after_hours: int, limit: int, report_format: str) -> dict[str, Any]:
+    executive = _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)
+    return {
+        "phase": "phase-8-executive-report",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "report_format": report_format.strip().lower(),
+        "executive_dashboard": executive,
+        "recommendations": _phase8_recommendations(executive),
+    }
+
+
+def _phase8_report_extension(report_format: str) -> str:
+    extension_map = {"json": "json", "csv": "csv", "markdown": "md"}
+    normalized = report_format.strip().lower()
+    if normalized not in extension_map:
+        raise HTTPException(status_code=400, detail="report_format invalido: use json, csv ou markdown")
+    return extension_map[normalized]
+
+
+def _phase8_safe_report_name(base_name: str, extension: str) -> str:
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", (base_name or "").strip()).strip("._") or "executive_report"
+    if not safe_name.lower().endswith(f".{extension}"):
+        safe_name = f"{safe_name}.{extension}"
+    return safe_name
+
+
 def _phase8_export_executive_report(
     report_format: str,
     days: int,
@@ -3570,25 +3630,15 @@ def _phase8_export_executive_report(
     persist: bool,
     output_name: Optional[str] = None,
 ) -> dict[str, Any]:
-    executive = _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)
-    payload = {
-        "phase": "phase-8-executive-report",
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "report_format": report_format.strip().lower(),
-        "executive_dashboard": executive,
-        "recommendations": _phase8_recommendations(executive),
-    }
+    payload = _phase8_build_report_payload(days, warning_after_hours, critical_after_hours, limit, report_format)
     content = _phase8_render_report_content(payload, payload["report_format"])
 
     file_path = None
     if persist:
         _ensure_reports_storage()
-        extension_map = {"json": "json", "csv": "csv", "markdown": "md"}
-        extension = extension_map[payload["report_format"]]
+        extension = _phase8_report_extension(payload["report_format"])
         base_name = (output_name or f"executive_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}").strip()
-        safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", base_name).strip("._") or "executive_report"
-        if not safe_name.lower().endswith(f".{extension}"):
-            safe_name = f"{safe_name}.{extension}"
+        safe_name = _phase8_safe_report_name(base_name, extension)
         target = _REPORTS_DIR / safe_name
         target.write_text(content, encoding="utf-8")
         file_path = str(target)
@@ -3600,7 +3650,110 @@ def _phase8_export_executive_report(
         "file_path": file_path,
         "content": content,
         "recommendations": payload["recommendations"],
-        "summary": executive.get("summary", {}),
+        "summary": (payload.get("executive_dashboard") or {}).get("summary", {}),
+    }
+
+
+def _phase9_publish_snapshot(
+    formats: list[str],
+    days: int,
+    warning_after_hours: int,
+    critical_after_hours: int,
+    limit: int,
+    snapshot_name: Optional[str] = None,
+) -> dict[str, Any]:
+    normalized_formats = []
+    for report_format in formats or _PHASE9_DEFAULT_SNAPSHOT_FORMATS:
+        fmt = str(report_format).strip().lower()
+        if fmt and fmt not in normalized_formats:
+            normalized_formats.append(fmt)
+    if not normalized_formats:
+        normalized_formats = list(_PHASE9_DEFAULT_SNAPSHOT_FORMATS)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    snapshot_id = re.sub(r"[^a-zA-Z0-9._-]+", "_", (snapshot_name or f"snapshot_{timestamp}").strip()).strip("._") or f"snapshot_{timestamp}"
+    _ensure_reports_storage()
+    snapshot_dir = _REPORTS_DIR / snapshot_id
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+    exported_files: list[dict[str, Any]] = []
+    for report_format in normalized_formats:
+        payload = _phase8_build_report_payload(days, warning_after_hours, critical_after_hours, limit, report_format)
+        content = _phase8_render_report_content(payload, report_format)
+        extension = _phase8_report_extension(report_format)
+        file_name = _phase8_safe_report_name(f"{snapshot_id}_{report_format}", extension)
+        target = snapshot_dir / file_name
+        target.write_text(content, encoding="utf-8")
+        exported_files.append(
+            {
+                "format": report_format,
+                "path": str(target),
+                "size_bytes": len(content.encode("utf-8")),
+            }
+        )
+
+    manifest = {
+        "snapshot_id": snapshot_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "window_days": days,
+        "formats": normalized_formats,
+        "files": exported_files,
+    }
+    (snapshot_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    index_entries = _load_reports_index()
+    index_entries = [entry for entry in index_entries if str(entry.get("snapshot_id") or "") != snapshot_id]
+    index_entries.append(manifest)
+    index_entries.sort(key=lambda entry: str(entry.get("generated_at") or ""), reverse=True)
+    _save_reports_index(index_entries)
+
+    return {
+        "phase": "phase-9-report-snapshot",
+        "snapshot": manifest,
+        "index_count": len(index_entries),
+    }
+
+
+def _phase9_list_snapshots(limit: int = 20) -> dict[str, Any]:
+    entries = _load_reports_index()
+    entries.sort(key=lambda entry: str(entry.get("generated_at") or ""), reverse=True)
+    return {
+        "phase": "phase-9-report-index",
+        "count": min(len(entries), limit),
+        "items": entries[:limit],
+    }
+
+
+def _phase9_cleanup_snapshots(retention_days: int, apply_changes: bool) -> dict[str, Any]:
+    entries = _load_reports_index()
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    kept_entries: list[dict[str, Any]] = []
+    removed_entries: list[dict[str, Any]] = []
+
+    for entry in entries:
+        ts = _parse_checkpoint_timestamp(entry.get("generated_at"))
+        if ts is not None and ts < cutoff:
+            removed_entries.append(entry)
+        else:
+            kept_entries.append(entry)
+
+    if apply_changes:
+        for entry in removed_entries:
+            snapshot_id = str(entry.get("snapshot_id") or "").strip()
+            if snapshot_id:
+                target = _REPORTS_DIR / snapshot_id
+                if target.exists() and target.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+        _save_reports_index(kept_entries)
+
+    return {
+        "phase": "phase-9-report-cleanup",
+        "applied": apply_changes,
+        "retention_days": retention_days,
+        "cutoff": cutoff.isoformat(timespec="seconds"),
+        "removed_count": len(removed_entries),
+        "kept_count": len(kept_entries),
+        "removed_snapshots": removed_entries[:20],
     }
 
 
@@ -4381,6 +4534,31 @@ def assistant_executive_report(request: AssistantExecutiveReportRequest) -> dict
     return {"ok": True, "result": result}
 
 
+@app.post("/assistant/executive/report/snapshot")
+def assistant_executive_report_snapshot(request: AssistantExecutiveSnapshotRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    result = _phase9_publish_snapshot(
+        formats=request.formats,
+        days=request.days,
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+        snapshot_name=request.snapshot_name,
+    )
+    return {"ok": True, "result": result}
+
+
+@app.get("/assistant/executive/report/index")
+def assistant_executive_report_index(limit: int = Query(default=20, ge=1, le=500)) -> dict[str, Any]:
+    return {"ok": True, "result": _phase9_list_snapshots(limit)}
+
+
+@app.post("/assistant/executive/report/cleanup")
+def assistant_executive_report_cleanup(request: AssistantReportCleanupRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase9_cleanup_snapshots(request.retention_days, request.apply_changes)}
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -4414,6 +4592,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase7_executive_dashboard": True,
             "assistant_phase7_deduplication": True,
             "assistant_phase8_executive_report": True,
+            "assistant_phase9_report_snapshots": True,
+            "assistant_phase9_report_retention": True,
         },
         "projects_root": str(project_root()),
     }
