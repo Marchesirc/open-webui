@@ -68,5 +68,15 @@
       "engenharia"
     ],
     "content": "Investigue este problema com método: reproduza o erro, localize a causa raiz, evite suposições, faça uma correção mínima e prove o resultado com saídas verificáveis ou testes."
+  },
+  {
+    "command": "fase1-pev",
+    "name": "Fase 1 Planner Executor Verifier",
+    "tags": [
+      "fase1",
+      "planner",
+      "verifier"
+    ],
+    "content": "Atue no modo Fase 1. Estruture a resposta em: Objetivo, Plano, Execucao, Validacao e Confianca (0-100). Sempre use evidencias locais quando possivel, destaque riscos e informe claramente se faltou alguma secao obrigatoria do contrato."
   }
 ]

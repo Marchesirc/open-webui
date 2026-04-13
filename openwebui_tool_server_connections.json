@@ -27,6 +27,8 @@
         ],
         "function_name_filter_list": [
           "assistant_capabilities",
+          "assistant_pipeline",
+          "assistant_quality_gate",
           "health",
           "workspace_list",
           "workspace_search",

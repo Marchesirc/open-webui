@@ -457,6 +457,28 @@ class PrepareProteusAssistedProjectRequest(BaseModel):
     ocr_min_text_chars: int = Field(default=80, ge=0, le=2000)
 
 
+class AssistantPipelineRequest(BaseModel):
+    task_type: str = Field(default="diagnose", description="diagnose|workspace|research|proteus|generic")
+    objective: str = Field(..., description="Objetivo principal da tarefa")
+    execute: bool = Field(default=False, description="Quando true, executa checagens seguras para validar o plano")
+    workspace_path: str = Field(default=".", description="Caminho relativo no workspace para contexto")
+    web_query: Optional[str] = Field(default=None, description="Consulta web opcional para tarefas de research")
+    network_target: str = Field(default="127.0.0.1", description="Alvo de rede para diagnose")
+    network_port: Optional[int] = Field(default=None)
+    network_url: Optional[str] = Field(default=None)
+    max_results: int = Field(default=5, ge=1, le=20)
+    response_text: Optional[str] = Field(default=None, description="Resposta gerada para validação opcional do contrato")
+
+
+class AssistantQualityGateRequest(BaseModel):
+    task_type: str = Field(default="generic")
+    response_text: str = Field(..., description="Resposta final para validação")
+    evidence_items: list[str] = Field(default_factory=list)
+    tool_calls: list[str] = Field(default_factory=list)
+    has_root_cause: bool = False
+    has_validation: bool = False
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2712,6 +2734,138 @@ def execute_automation_workflow(request: AutomationRunRequest) -> dict[str, Any]
     return output
 
 
+_TASK_CONTRACTS: dict[str, dict[str, Any]] = {
+    "diagnose": {
+        "required_sections": ["Resumo", "Causa raiz", "Correcao", "Validacao"],
+        "verifier_checks": ["service_health", "network_probe", "evidence_present"],
+    },
+    "workspace": {
+        "required_sections": ["Objetivo", "Plano", "Mudancas", "Proximos passos"],
+        "verifier_checks": ["workspace_context", "change_safety", "evidence_present"],
+    },
+    "research": {
+        "required_sections": ["Resumo", "Comparativo", "Fontes", "Recomendacao"],
+        "verifier_checks": ["web_sources", "source_quality", "evidence_present"],
+    },
+    "proteus": {
+        "required_sections": ["Objetivo", "Plano", "Execucao", "Resultado"],
+        "verifier_checks": ["project_context", "automation_steps", "evidence_present"],
+    },
+    "generic": {
+        "required_sections": ["Objetivo", "Plano", "Execucao", "Validacao"],
+        "verifier_checks": ["structured_output", "evidence_present"],
+    },
+}
+
+
+def _normalize_task_type(task_type: str) -> str:
+    normalized = (task_type or "generic").strip().lower()
+    return normalized if normalized in _TASK_CONTRACTS else "generic"
+
+
+def _get_task_contract(task_type: str) -> dict[str, Any]:
+    key = _normalize_task_type(task_type)
+    contract = dict(_TASK_CONTRACTS.get(key, _TASK_CONTRACTS["generic"]))
+    contract["task_type"] = key
+    return contract
+
+
+def _build_assistant_plan(task_type: str, objective: str) -> list[dict[str, Any]]:
+    common_steps = [
+        "Mapear contexto e restricoes da tarefa",
+        "Executar checagens com ferramentas locais",
+        "Consolidar evidencia verificavel",
+        "Propor correcao/acao com validacao",
+    ]
+    if task_type == "research":
+        common_steps[1] = "Coletar fontes na web e comparar resultados"
+    if task_type == "workspace":
+        common_steps[1] = "Inspecionar estrutura/arquivos relevantes no workspace"
+    if task_type == "proteus":
+        common_steps[1] = "Executar checagens do bridge e do fluxo de automacao Proteus"
+
+    steps = []
+    for idx, step in enumerate(common_steps, start=1):
+        steps.append({"id": idx, "step": step, "objective": objective if idx == 1 else None})
+    return steps
+
+
+def _evaluate_sections(response_text: str, required_sections: list[str]) -> tuple[list[str], list[str]]:
+    text_lower = (response_text or "").lower()
+    present: list[str] = []
+    missing: list[str] = []
+    for section in required_sections:
+        token = section.lower()
+        if token in text_lower:
+            present.append(section)
+        else:
+            missing.append(section)
+    return present, missing
+
+
+def _score_confidence(
+    required_count: int,
+    present_count: int,
+    evidence_count: int,
+    tool_count: int,
+    has_root_cause: bool,
+    has_validation: bool,
+) -> dict[str, Any]:
+    ratio = (present_count / required_count) if required_count else 1.0
+    score = 25.0
+    score += 40.0 * ratio
+    score += min(max(evidence_count, 0), 4) * 5.0
+    score += min(max(tool_count, 0), 3) * 5.0
+    if has_root_cause:
+        score += 10.0
+    if has_validation:
+        score += 10.0
+    score = round(max(0.0, min(score, 100.0)), 2)
+
+    if score >= 85:
+        level = "high"
+    elif score >= 65:
+        level = "medium"
+    else:
+        level = "low"
+
+    return {"score": score, "level": level}
+
+
+def _run_phase1_executor(request: AssistantPipelineRequest) -> dict[str, Any]:
+    outputs: list[dict[str, Any]] = []
+    task_type = _normalize_task_type(request.task_type)
+
+    # Always capture a lightweight workspace context snapshot for traceability.
+    try:
+        workspace_preview = list_workspace_entries(request.workspace_path, max_entries=max(5, request.max_results))
+        outputs.append({"check": "workspace_preview", "ok": bool(workspace_preview.get("ok")), "data": workspace_preview})
+    except Exception as exc:
+        outputs.append({"check": "workspace_preview", "ok": False, "error": str(exc)})
+
+    if task_type in {"diagnose", "generic", "proteus"}:
+        try:
+            network_probe = check_network_target(
+                target=request.network_target,
+                port=request.network_port,
+                url=request.network_url,
+                timeout_seconds=5,
+            )
+            outputs.append({"check": "network_probe", "ok": bool(network_probe.get("ok")), "data": network_probe})
+        except Exception as exc:
+            outputs.append({"check": "network_probe", "ok": False, "error": str(exc)})
+
+    if task_type == "research" and request.web_query:
+        try:
+            web_results = search_web_online(request.web_query, max_results=request.max_results)
+            outputs.append({"check": "web_research", "ok": bool(web_results.get("ok")), "data": web_results})
+        except Exception as exc:
+            outputs.append({"check": "web_research", "ok": False, "error": str(exc)})
+
+    all_ok = all(bool(item.get("ok")) for item in outputs) if outputs else False
+    return {"executed": True, "ok": all_ok, "outputs": outputs}
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
@@ -2961,6 +3115,89 @@ def proteus_prepare_assisted_project(request: PrepareProteusAssistedProjectReque
     return prepare_proteus_assisted_project(request)
 
 
+@app.post("/assistant/pipeline")
+def assistant_pipeline(request: AssistantPipelineRequest) -> dict[str, Any]:
+    task_type = _normalize_task_type(request.task_type)
+    contract = _get_task_contract(task_type)
+    planner_steps = _build_assistant_plan(task_type, request.objective)
+
+    executor: dict[str, Any] = {"executed": False, "ok": True, "outputs": []}
+    if request.execute:
+        executor = _run_phase1_executor(request)
+
+    response_text = request.response_text or ""
+    present_sections, missing_sections = _evaluate_sections(response_text, contract.get("required_sections", []))
+    verifier = {
+        "required_sections": contract.get("required_sections", []),
+        "present_sections": present_sections,
+        "missing_sections": missing_sections,
+        "executor_ok": bool(executor.get("ok", True)),
+        "objective_present": bool(request.objective.strip()),
+    }
+    verifier["pass"] = (
+        bool(verifier["objective_present"])
+        and bool(verifier["executor_ok"])
+        and (len(verifier["missing_sections"]) == 0 if response_text else True)
+    )
+
+    evidence_count = len(executor.get("outputs", [])) if request.execute else 0
+    tool_count = sum(1 for item in executor.get("outputs", []) if item.get("check")) if request.execute else 0
+    confidence = _score_confidence(
+        required_count=len(contract.get("required_sections", [])),
+        present_count=len(present_sections),
+        evidence_count=evidence_count,
+        tool_count=tool_count,
+        has_root_cause=("causa raiz" in response_text.lower()) if response_text else False,
+        has_validation=("valida" in response_text.lower()) if response_text else bool(request.execute),
+    )
+
+    return {
+        "ok": True,
+        "phase": "phase-1-planner-executor-verifier",
+        "task_type": task_type,
+        "objective": request.objective,
+        "planner": {"steps": planner_steps},
+        "executor": executor,
+        "verifier": verifier,
+        "confidence": confidence,
+    }
+
+
+@app.post("/assistant/quality-gate")
+def assistant_quality_gate(request: AssistantQualityGateRequest) -> dict[str, Any]:
+    task_type = _normalize_task_type(request.task_type)
+    contract = _get_task_contract(task_type)
+    present_sections, missing_sections = _evaluate_sections(
+        request.response_text,
+        contract.get("required_sections", []),
+    )
+
+    confidence = _score_confidence(
+        required_count=len(contract.get("required_sections", [])),
+        present_count=len(present_sections),
+        evidence_count=len(request.evidence_items),
+        tool_count=len(request.tool_calls),
+        has_root_cause=request.has_root_cause,
+        has_validation=request.has_validation,
+    )
+
+    return {
+        "ok": True,
+        "phase": "phase-1-quality-gate",
+        "task_type": task_type,
+        "contract": contract,
+        "present_sections": present_sections,
+        "missing_sections": missing_sections,
+        "confidence": confidence,
+        "pass": len(missing_sections) == 0 and confidence["score"] >= 70,
+        "recommendations": [
+            "Inclua as secoes ausentes do contrato" if missing_sections else "Contrato completo",
+            "Aumente evidencias verificaveis (saidas/links/logs)" if len(request.evidence_items) < 2 else "Evidencias suficientes",
+            "Inclua validacao objetiva no fim da resposta" if not request.has_validation else "Validacao presente",
+        ],
+    }
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -2979,6 +3216,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "web_search": True,
             "web_fetch": True,
             "network_diagnostics": True,
+            "assistant_phase1_pipeline": True,
+            "assistant_quality_gate": True,
         },
         "projects_root": str(project_root()),
     }

@@ -28,6 +28,8 @@
           ],
           "function_name_filter_list": [
             "assistant_capabilities",
+            "assistant_pipeline",
+            "assistant_quality_gate",
             "health",
             "workspace_list",
             "workspace_search",
@@ -132,6 +134,13 @@
         "causa raiz com prova"
       ],
       "content": "Investigue este erro com método de engenharia: reproduza o problema, encontre a causa raiz, aplique a menor correção segura e prove o resultado com teste ou saída verificável."
+    },
+    {
+      "title": [
+        "Fase 1",
+        "planner executor verifier"
+      ],
+      "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -185,6 +194,13 @@
           "causa raiz com prova"
         ],
         "content": "Investigue este erro com método de engenharia: reproduza o problema, encontre a causa raiz, aplique a menor correção segura e prove o resultado com teste ou saída verificável."
+      },
+      {
+        "title": [
+          "Fase 1",
+          "planner executor verifier"
+        ],
+        "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
       }
     ],
     "default_locale": "pt-BR",

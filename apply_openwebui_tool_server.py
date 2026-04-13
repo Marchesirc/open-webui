@@ -76,6 +76,8 @@ TRUSTED_WEB_DOMAINS = [
 
 PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_capabilities",
+    "assistant_pipeline",
+    "assistant_quality_gate",
     "health",
     "workspace_list",
     "workspace_search",
@@ -183,6 +185,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Depurar erro", "causa raiz com prova"],
         "content": "Investigue este erro com método de engenharia: reproduza o problema, encontre a causa raiz, aplique a menor correção segura e prove o resultado com teste ou saída verificável."
+    },
+    {
+        "title": ["Fase 1", "planner executor verifier"],
+        "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
     }
 ]
 
@@ -228,6 +234,12 @@ FIXED_PROMPTS = [
         "name": "Debug de Causa Raiz",
         "tags": ["debug", "causa-raiz", "engenharia"],
         "content": "Investigue este problema com método: reproduza o erro, localize a causa raiz, evite suposições, faça uma correção mínima e prove o resultado com saídas verificáveis ou testes."
+    },
+    {
+        "command": "fase1-pev",
+        "name": "Fase 1 Planner Executor Verifier",
+        "tags": ["fase1", "planner", "verifier"],
+        "content": "Atue no modo Fase 1. Estruture a resposta em: Objetivo, Plano, Execucao, Validacao e Confianca (0-100). Sempre use evidencias locais quando possivel, destaque riscos e informe claramente se faltou alguma secao obrigatoria do contrato."
     }
 ]
 
