@@ -111,6 +111,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_summary",
     "assistant_incidents_close_resolved",
     "assistant_incidents_reopen_regressed",
+    "assistant_incidents_deduplicate",
     "health",
     "workspace_list",
     "workspace_search",
@@ -290,6 +291,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 18", "reabertura por regressao"],
         "content": "Execute a Fase 18: se um escopo que estava estavel voltar a falhar, reabra incidente fechado automaticamente com severidade atualizada e rastreabilidade completa de regressao."
+    },
+    {
+        "title": ["Fase 19", "deduplicacao inteligente"],
+        "content": "Execute a Fase 19: aplique deduplicacao de incidentes por fingerprint e janela temporal, evite abrir duplicatas em regressao repetida e consolide itens redundantes no incidente principal."
     }
 ]
 
@@ -443,6 +448,12 @@ FIXED_PROMPTS = [
         "name": "Fase 18 Reabertura por Regressao",
         "tags": ["fase18", "incidentes", "regressao"],
         "content": "Atue no modo Fase 18. Ao detectar regressao de conformidade em escopo com historico fechado, reabra o incidente mais recente, atualize severidade e registre trilha de auditoria da transicao closed para open."
+    },
+    {
+        "command": "fase19-deduplicacao-incidentes",
+        "name": "Fase 19 Deduplicacao Inteligente de Incidentes",
+        "tags": ["fase19", "incidentes", "deduplicacao"],
+        "content": "Atue no modo Fase 19. Calcule fingerprint por escopo e checks falhos, reutilize incidente aberto na janela configurada e execute deduplicacao batch para marcar duplicados sem perder rastreabilidade."
     }
 ]
 

@@ -248,5 +248,15 @@
       "regressao"
     ],
     "content": "Atue no modo Fase 18. Ao detectar regressao de conformidade em escopo com historico fechado, reabra o incidente mais recente, atualize severidade e registre trilha de auditoria da transicao closed para open."
+  },
+  {
+    "command": "fase19-deduplicacao-incidentes",
+    "name": "Fase 19 Deduplicacao Inteligente de Incidentes",
+    "tags": [
+      "fase19",
+      "incidentes",
+      "deduplicacao"
+    ],
+    "content": "Atue no modo Fase 19. Calcule fingerprint por escopo e checks falhos, reutilize incidente aberto na janela configurada e execute deduplicacao batch para marcar duplicados sem perder rastreabilidade."
   }
 ]

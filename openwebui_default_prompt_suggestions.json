@@ -173,5 +173,12 @@
       "reabertura por regressao"
     ],
     "content": "Execute a Fase 18: se um escopo que estava estavel voltar a falhar, reabra incidente fechado automaticamente com severidade atualizada e rastreabilidade completa de regressao."
+  },
+  {
+    "title": [
+      "Fase 19",
+      "deduplicacao inteligente"
+    ],
+    "content": "Execute a Fase 19: aplique deduplicacao de incidentes por fingerprint e janela temporal, evite abrir duplicatas em regressao repetida e consolide itens redundantes no incidente principal."
   }
 ]

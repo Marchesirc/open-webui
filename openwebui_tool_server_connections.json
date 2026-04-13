@@ -60,6 +60,7 @@
           "assistant_incidents_summary",
           "assistant_incidents_close_resolved",
           "assistant_incidents_reopen_regressed",
+          "assistant_incidents_deduplicate",
           "health",
           "workspace_list",
           "workspace_search",

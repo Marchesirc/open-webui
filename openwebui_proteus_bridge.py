@@ -655,6 +655,8 @@ class AssistantPolicyEscalationRequest(BaseModel):
     severity_on_fail: str = Field(default="sev2", description="sev1|sev2|sev3|sev4")
     owner: Optional[str] = None
     channel: str = Field(default="operations")
+    dedup_enabled: bool = True
+    dedup_window_hours: int = Field(default=24, ge=1, le=168)
     dry_run: bool = False
 
 
@@ -684,7 +686,19 @@ class AssistantIncidentReopenRequest(BaseModel):
     severity_on_reopen: str = Field(default="sev2", description="sev1|sev2|sev3|sev4")
     owner: Optional[str] = None
     channel: str = Field(default="operations")
+    dedup_enabled: bool = True
+    dedup_window_hours: int = Field(default=24, ge=1, le=168)
     dry_run: bool = False
+
+
+class AssistantIncidentDedupRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=7, ge=1, le=90)
+    window_hours: int = Field(default=24, ge=1, le=168)
+    apply_changes: bool = False
+    limit: int = Field(default=5000, ge=100, le=50000)
 
 
 def project_root() -> Path:
@@ -4260,9 +4274,141 @@ def _phase16_open_incident(
         "policy_pass_after": bool((enforcement_result.get("evaluation_after") or {}).get("pass")),
         "actions": [str(item.get("action") or "") for item in list(enforcement_result.get("actions") or [])],
         "recommendations": list(((enforcement_result.get("evaluation_after") or {}).get("recommendations") or [])),
+        "fingerprint_key": _phase19_incident_fingerprint(
+            scope,
+            dict(enforcement_result.get("evaluation_after") or {}),
+            severity,
+        ),
     }
     _save_incident(incident)
     return incident
+
+
+def _phase19_incident_fingerprint(scope: dict[str, str], evaluation: dict[str, Any], severity: str) -> str:
+    failed_checks = [
+        str(item.get("check") or "").strip().lower()
+        for item in list(evaluation.get("checks") or [])
+        if not bool(item.get("pass"))
+    ]
+    failed_checks = sorted([item for item in failed_checks if item])
+    checks_token = ",".join(failed_checks) if failed_checks else "none"
+    return "|".join(
+        [
+            scope.get("tenant_id", ""),
+            scope.get("project_scope", ""),
+            scope.get("environment", ""),
+            str(severity or "sev2").strip().lower(),
+            checks_token,
+        ]
+    )
+
+
+def _phase19_match_recent_incident(
+    scope: dict[str, str],
+    fingerprint_key: str,
+    window_hours: int,
+    status: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    incidents = _load_incidents()
+    cutoff = datetime.now() - timedelta(hours=max(int(window_hours), 1))
+    target_status = (status or "").strip().lower() or None
+    matches: list[dict[str, Any]] = []
+
+    for item in incidents:
+        item_scope = dict(item.get("scope") or {})
+        if (
+            str(item_scope.get("environment") or "").strip().lower() != scope["environment"]
+            or str(item_scope.get("tenant_id") or "").strip().lower() != scope["tenant_id"]
+            or str(item_scope.get("project_scope") or "").strip().lower() != scope["project_scope"]
+        ):
+            continue
+        if str(item.get("fingerprint_key") or "").strip().lower() != str(fingerprint_key).strip().lower():
+            continue
+        if target_status and str(item.get("status") or "").strip().lower() != target_status:
+            continue
+        ts = _parse_checkpoint_timestamp(item.get("reopened_at") or item.get("created_at"))
+        if ts is None or ts < cutoff:
+            continue
+        matches.append(item)
+
+    if not matches:
+        return None
+    matches.sort(key=lambda item: str(item.get("reopened_at") or item.get("created_at") or ""), reverse=True)
+    return matches[0]
+
+
+def _phase19_deduplicate_incidents(request: AssistantIncidentDedupRequest) -> dict[str, Any]:
+    incidents = _load_incidents()
+    normalized_env = (request.environment or "").strip().lower() or None
+    normalized_tenant = (request.tenant_id or "").strip().lower() or None
+    normalized_project = (request.project_scope or "").strip().lower() or None
+    cutoff_days = datetime.now() - timedelta(days=int(request.days))
+    cutoff_window = datetime.now() - timedelta(hours=int(request.window_hours))
+
+    candidates: dict[tuple[str, str, str], list[tuple[int, dict[str, Any]]]] = {}
+    for idx, item in enumerate(incidents[: int(request.limit)]):
+        if str(item.get("status") or "").strip().lower() != "open":
+            continue
+        scope = dict(item.get("scope") or {})
+        env = str(scope.get("environment") or "").strip().lower()
+        ten = str(scope.get("tenant_id") or "").strip().lower()
+        proj = str(scope.get("project_scope") or "").strip().lower()
+        if normalized_env and env != normalized_env:
+            continue
+        if normalized_tenant and ten != normalized_tenant:
+            continue
+        if normalized_project and proj != normalized_project:
+            continue
+        created_at = _parse_checkpoint_timestamp(item.get("created_at"))
+        if created_at is None or created_at < cutoff_days or created_at < cutoff_window:
+            continue
+        fingerprint = str(item.get("fingerprint_key") or "").strip().lower()
+        if not fingerprint:
+            continue
+        key = (env, ten, proj, fingerprint)
+        candidates.setdefault(key, []).append((idx, item))
+
+    duplicates: list[dict[str, Any]] = []
+    for group in candidates.values():
+        if len(group) <= 1:
+            continue
+        group.sort(key=lambda pair: str((pair[1]).get("reopened_at") or (pair[1]).get("created_at") or ""), reverse=True)
+        keeper = group[0][1]
+        for idx, item in group[1:]:
+            duplicates.append(
+                {
+                    "index": idx,
+                    "incident_id": item.get("incident_id"),
+                    "deduplicated_to": keeper.get("incident_id"),
+                    "scope": item.get("scope"),
+                    "fingerprint_key": item.get("fingerprint_key"),
+                }
+            )
+
+    if request.apply_changes and duplicates:
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        for dup in duplicates:
+            idx = int(dup["index"])
+            incidents[idx]["status"] = "deduplicated"
+            incidents[idx]["deduplicated_at"] = now_iso
+            incidents[idx]["deduplicated_by"] = "phase-19-incident-dedup"
+            incidents[idx]["deduplicated_to"] = dup["deduplicated_to"]
+        _save_incidents(incidents)
+
+    return {
+        "phase": "phase-19-incident-deduplication",
+        "applied": bool(request.apply_changes),
+        "filters": {
+            "environment": normalized_env,
+            "tenant_id": normalized_tenant,
+            "project_scope": normalized_project,
+            "days": int(request.days),
+            "window_hours": int(request.window_hours),
+            "limit": int(request.limit),
+        },
+        "duplicates_count": len(duplicates),
+        "duplicates": duplicates[:100],
+    }
 
 
 def _phase18_reopen_latest_closed_incident(
@@ -4343,17 +4489,31 @@ def _phase18_reopen_on_regression(request: AssistantIncidentReopenRequest) -> di
     evaluation = _phase13_evaluate_scoped_policy(policy, dashboard)
     pass_now = bool(evaluation.get("pass"))
     should_reopen = bool(request.force_reopen or not pass_now)
+    fingerprint_key = _phase19_incident_fingerprint(scope, evaluation, severity)
 
     reopened = None
+    deduplicated = False
     if should_reopen:
-        reopened = _phase18_reopen_latest_closed_incident(
-            scope=scope,
-            severity=severity,
-            owner=request.owner,
-            channel=request.channel,
-            reopen_note=request.reopen_note,
-            dry_run=bool(request.dry_run),
-        )
+        if bool(request.dedup_enabled):
+            existing_open = _phase19_match_recent_incident(
+                scope=scope,
+                fingerprint_key=fingerprint_key,
+                window_hours=int(request.dedup_window_hours),
+                status="open",
+            )
+            if existing_open is not None:
+                reopened = existing_open
+                deduplicated = True
+
+        if reopened is None:
+            reopened = _phase18_reopen_latest_closed_incident(
+                scope=scope,
+                severity=severity,
+                owner=request.owner,
+                channel=request.channel,
+                reopen_note=request.reopen_note,
+                dry_run=bool(request.dry_run),
+            )
 
     if should_reopen and reopened is None and not request.dry_run:
         reopened = _phase16_open_incident(
@@ -4377,7 +4537,9 @@ def _phase18_reopen_on_regression(request: AssistantIncidentReopenRequest) -> di
                 "force_reopen": bool(request.force_reopen),
                 "should_reopen": should_reopen,
                 "reopened": bool(reopened),
+                "deduplicated": deduplicated,
                 "severity": severity,
+                "fingerprint_key": fingerprint_key,
             },
         ),
         result={"evaluation_phase": evaluation.get("phase"), "incident_id": (reopened or {}).get("incident_id")},
@@ -4391,6 +4553,8 @@ def _phase18_reopen_on_regression(request: AssistantIncidentReopenRequest) -> di
         "evaluation": evaluation,
         "pass_now": pass_now,
         "should_reopen": should_reopen,
+        "deduplicated": deduplicated,
+        "fingerprint_key": fingerprint_key,
         "incident": reopened,
         "incident_reopened": bool(reopened),
     }
@@ -4420,20 +4584,38 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
     scope = dict(enforcement.get("scope") or {})
     pass_after = bool((enforcement.get("evaluation_after") or {}).get("pass"))
     should_escalate = bool(request.force_incident or not pass_after)
+    fingerprint_key = _phase19_incident_fingerprint(scope, dict(enforcement.get("evaluation_after") or {}), severity)
 
     incident = None
     incident_reopened = False
     incident_created = False
+    incident_deduplicated = False
     if should_escalate and not request.dry_run:
-        incident = _phase18_reopen_latest_closed_incident(
-            scope=scope,
-            severity=severity,
-            owner=request.owner,
-            channel=request.channel,
-            reopen_note="regressao detectada apos fase de conformidade",
-            dry_run=False,
-        )
-        incident_reopened = bool(incident)
+        dedup_enabled = bool(request.dedup_enabled)
+        if dedup_enabled:
+            existing_open = _phase19_match_recent_incident(
+                scope=scope,
+                fingerprint_key=fingerprint_key,
+                window_hours=int(request.dedup_window_hours),
+                status="open",
+            )
+            if existing_open is not None:
+                incident = existing_open
+                incident_deduplicated = True
+
+        if incident is None:
+            incident = _phase18_reopen_latest_closed_incident(
+                scope=scope,
+                severity=severity,
+                owner=request.owner,
+                channel=request.channel,
+                reopen_note="regressao detectada apos fase de conformidade",
+                dry_run=False,
+            )
+            incident_reopened = bool(incident)
+            if incident is not None:
+                incident["fingerprint_key"] = fingerprint_key
+
         if incident is None:
             incident = _phase16_open_incident(
                 scope=scope,
@@ -4471,7 +4653,9 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
                 "force_incident": bool(request.force_incident),
                 "incident_created": incident_created,
                 "incident_reopened": incident_reopened,
+                "incident_deduplicated": incident_deduplicated,
                 "severity": severity,
+                "fingerprint_key": fingerprint_key,
                 "auto_closed_incidents": int(closure_result.get("closed_count") or 0),
             },
         ),
@@ -4487,6 +4671,8 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
         "escalation_triggered": should_escalate,
         "incident_created": incident_created,
         "incident_reopened": incident_reopened,
+        "incident_deduplicated": incident_deduplicated,
+        "fingerprint_key": fingerprint_key,
         "incident": incident,
         "auto_closure": closure_result,
     }
@@ -6391,6 +6577,11 @@ def assistant_incidents_reopen_regressed(request: AssistantIncidentReopenRequest
     return {"ok": True, "result": _phase18_reopen_on_regression(request)}
 
 
+@app.post("/assistant/incidents/deduplicate")
+def assistant_incidents_deduplicate(request: AssistantIncidentDedupRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase19_deduplicate_incidents(request)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -6536,6 +6727,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase16_incident_escalation": True,
             "assistant_phase17_auto_incident_closure": True,
             "assistant_phase18_incident_regression_reopen": True,
+            "assistant_phase19_incident_deduplication": True,
         },
         "projects_root": str(project_root()),
     }
