@@ -135,6 +135,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_rca_history",
     "assistant_runbooks_score",
     "assistant_runbooks_score_history",
+    "assistant_compliance_preventive_gates_evaluate",
+    "assistant_compliance_preventive_gates_history",
     "health",
     "workspace_list",
     "workspace_search",
@@ -557,6 +559,12 @@ FIXED_PROMPTS = [
         "name": "Fase 31 Runbook Score e Qualidade Operacional",
         "tags": ["fase31", "runbook", "score", "qualidade", "operacional", "mttr"],
         "content": "Atue no modo Fase 31. Avalie a qualidade operacional de cada playbook calculando success_rate, rework_rate, avg_actions e composite_score. Classifique playbooks por grade (A a F), identifique os top N com maior impacto em MTTR e gere historico auditavel de scores para acompanhamento de tendencias de qualidade."
+    },
+    {
+        "command": "fase32-compliance-gates",
+        "name": "Fase 32 Compliance Continuo com Gates Preventivos",
+        "tags": ["fase32", "compliance", "gates", "preventivo", "mudancas"],
+        "content": "Atue no modo Fase 32. Avalie sinais preditivos antes de liberar mudancas no escopo alvo, combinando forecast de risco, anomalias, risco de SLA, pressao operacional e politica scoped. Decida entre allow, manual_approval ou block, e mantenha historico auditavel dos gates preventivos."
     }
 ]
 

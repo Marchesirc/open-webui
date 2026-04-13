@@ -852,6 +852,25 @@ class AssistantPhase31RunbookScoreRequest(BaseModel):
     limit: int = Field(default=5000, ge=10, le=50000)
 
 
+class AssistantPhase32PreventiveGateRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    change_ref: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    change_summary: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    days: int = Field(default=14, ge=1, le=90)
+    compare_window_days: int = Field(default=14, ge=1, le=90)
+    bucket_hours: int = Field(default=24, ge=1, le=168)
+    z_threshold: float = Field(default=2.0, ge=0.5, le=5.0)
+    recent_open_incident_threshold: int = Field(default=3, ge=1, le=100)
+    warning_after_hours: int = Field(default=24, ge=1, le=720)
+    critical_after_hours: int = Field(default=72, ge=1, le=1440)
+    approval_required: bool = Field(default=True)
+    approved: bool = Field(default=False)
+    dry_run: bool = Field(default=False)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3147,6 +3166,7 @@ _REPORTS_REMEDIATIONS_FILE = _REPORTS_DIR / "remediation_runs.jsonl"
 _REPORTS_ESCALATIONS_FILE  = _REPORTS_DIR / "sla_escalation_runs.jsonl"
 _REPORTS_RCA_FILE          = _REPORTS_DIR / "rca_clusters.jsonl"
 _REPORTS_RUNBOOK_SCORE_FILE = _REPORTS_DIR / "runbook_scores.jsonl"
+_REPORTS_PREVENTIVE_GATES_FILE = _REPORTS_DIR / "preventive_gates.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -6826,6 +6846,329 @@ def _phase31_runbook_score_history(days: int = 60, limit: int = 50) -> dict[str,
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 32 — Compliance Continuo com Gates Preventivos
+# ---------------------------------------------------------------------------
+
+def _load_preventive_gate_runs() -> list[dict[str, Any]]:
+    if not _REPORTS_PREVENTIVE_GATES_FILE.exists():
+        return []
+    try:
+        rows: list[dict[str, Any]] = []
+        with open(_REPORTS_PREVENTIVE_GATES_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rows.append(json.loads(line))
+        return rows
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_PREVENTIVE_GATES_FILE}: {exc}") from exc
+
+
+def _save_preventive_gate_run(entry: dict[str, Any]) -> None:
+    _REPORTS_PREVENTIVE_GATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_PREVENTIVE_GATES_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar gate preventivo em {_REPORTS_PREVENTIVE_GATES_FILE}: {exc}") from exc
+
+
+def _phase32_gate_decision(score: int) -> str:
+    if score >= 70:
+        return "block"
+    if score >= 40:
+        return "manual_approval"
+    return "allow"
+
+
+def _phase32_count_recent_open_incidents(
+    environment: Optional[str],
+    tenant_id: Optional[str],
+    project_scope: Optional[str],
+    days: int,
+) -> int:
+    incidents = _load_incidents()
+    cutoff = (datetime.now() - timedelta(days=int(days))).isoformat(timespec="seconds")
+    total = 0
+    for item in incidents:
+        incident = dict(item)
+        if str(incident.get("status") or "").strip().lower() != "open":
+            continue
+        if str(incident.get("created_at") or "") < cutoff:
+            continue
+        if not _phase27_scope_matches(incident, environment, tenant_id, project_scope):
+            continue
+        total += 1
+    return total
+
+
+def _phase32_evaluate_preventive_gate(request: AssistantPhase32PreventiveGateRequest) -> dict[str, Any]:
+    scope = {
+        "environment": (request.environment or "").strip().lower(),
+        "tenant_id": (request.tenant_id or "").strip().lower(),
+        "project_scope": (request.project_scope or "").strip().lower(),
+    }
+
+    dashboard = _phase12_build_scoped_dashboard(
+        days=max(1, min(int(request.days), 30)),
+        warning_after_hours=int(request.warning_after_hours),
+        critical_after_hours=int(request.critical_after_hours),
+        limit=min(int(request.limit), 500),
+        environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
+    )
+    policy = None
+    if scope["environment"] or scope["tenant_id"] or scope["project_scope"]:
+        policy = _phase13_find_policy(scope)
+    policy_eval = _phase13_evaluate_scoped_policy(policy, dashboard)
+
+    forecast = _phase21_correlation_forecast(
+        AssistantIncidentForecastRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status="open",
+            days=request.days,
+            compare_window_days=request.compare_window_days,
+            limit=request.limit,
+        )
+    )
+    anomalies = _phase25_anomaly_detection(
+        AssistantPhase25AnomalyRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            days=request.days,
+            bucket_hours=request.bucket_hours,
+            z_threshold=request.z_threshold,
+            limit=request.limit,
+        )
+    )
+    sla = _phase27_sla_breach_forecast(
+        AssistantPhase27SlaForecastRequest(
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            status="open",
+            days=request.days,
+            limit=request.limit,
+        )
+    )
+    runbook_quality = _phase31_runbook_score_history(days=max(int(request.days), 30), limit=1)
+    recent_open_incidents = _phase32_count_recent_open_incidents(
+        request.environment,
+        request.tenant_id,
+        request.project_scope,
+        request.days,
+    )
+
+    gate_score = 0
+    signals: list[dict[str, Any]] = []
+
+    if not bool(policy_eval.get("pass", True)):
+        gate_score += 25
+        signals.append({
+            "signal": "scoped_policy_fail",
+            "severity": "high",
+            "score_delta": 25,
+            "summary": "Politica scoped em fail para o escopo alvo.",
+        })
+
+    forecast_tiers = dict(forecast.get("forecast_tiers") or {})
+    if int(forecast_tiers.get("critical") or 0) > 0:
+        gate_score += 35
+        signals.append({
+            "signal": "forecast_critical",
+            "severity": "critical",
+            "score_delta": 35,
+            "summary": "Forecast de risco critico detectado para o escopo.",
+        })
+    elif int(forecast_tiers.get("high") or 0) > 0:
+        gate_score += 20
+        signals.append({
+            "signal": "forecast_high",
+            "severity": "high",
+            "score_delta": 20,
+            "summary": "Forecast de risco alto detectado para o escopo.",
+        })
+
+    anomaly_rows = list(anomalies.get("anomalies") or [])
+    critical_anomalies = sum(1 for row in anomaly_rows if str(row.get("severity") or "") == "critical")
+    high_anomalies = sum(1 for row in anomaly_rows if str(row.get("severity") or "") == "high")
+    if critical_anomalies > 0:
+        gate_score += 20
+        signals.append({
+            "signal": "anomaly_critical",
+            "severity": "critical",
+            "score_delta": 20,
+            "summary": f"{critical_anomalies} anomalia(s) critica(s) de frequencia detectada(s).",
+        })
+    elif high_anomalies > 0:
+        gate_score += 12
+        signals.append({
+            "signal": "anomaly_high",
+            "severity": "high",
+            "score_delta": 12,
+            "summary": f"{high_anomalies} anomalia(s) alta(s) de frequencia detectada(s).",
+        })
+
+    sla_by_risk = dict(sla.get("by_risk_tier") or {})
+    if int(sla_by_risk.get("breached") or 0) > 0:
+        gate_score += 40
+        signals.append({
+            "signal": "sla_breached",
+            "severity": "critical",
+            "score_delta": 40,
+            "summary": "Incidentes ja breached no SLA para o escopo.",
+        })
+    elif int(sla_by_risk.get("critical") or 0) > 0:
+        gate_score += 20
+        signals.append({
+            "signal": "sla_critical",
+            "severity": "high",
+            "score_delta": 20,
+            "summary": "Incidentes com risco critico de breach de SLA.",
+        })
+    elif int(sla_by_risk.get("high") or 0) > 0:
+        gate_score += 10
+        signals.append({
+            "signal": "sla_high",
+            "severity": "medium",
+            "score_delta": 10,
+            "summary": "Incidentes com risco alto de breach de SLA.",
+        })
+
+    if recent_open_incidents >= int(request.recent_open_incident_threshold):
+        score_delta = min(20, 5 * (recent_open_incidents - int(request.recent_open_incident_threshold) + 1))
+        gate_score += int(score_delta)
+        signals.append({
+            "signal": "open_incidents_pressure",
+            "severity": "high" if recent_open_incidents >= int(request.recent_open_incident_threshold) + 2 else "medium",
+            "score_delta": int(score_delta),
+            "summary": f"{recent_open_incidents} incidentes abertos no periodo configurado.",
+        })
+
+    overall_avg_composite = float(runbook_quality.get("overall_avg_composite") or 0.0)
+    if runbook_quality.get("total_runs"):
+        if overall_avg_composite < 55.0:
+            gate_score += 12
+            signals.append({
+                "signal": "runbook_quality_low",
+                "severity": "high",
+                "score_delta": 12,
+                "summary": f"Qualidade operacional baixa dos runbooks ({overall_avg_composite}).",
+            })
+        elif overall_avg_composite < 70.0:
+            gate_score += 6
+            signals.append({
+                "signal": "runbook_quality_warn",
+                "severity": "medium",
+                "score_delta": 6,
+                "summary": f"Qualidade operacional apenas moderada dos runbooks ({overall_avg_composite}).",
+            })
+
+    gate_score = min(int(gate_score), 100)
+    decision = _phase32_gate_decision(gate_score)
+    status = "allowed"
+    blocked = False
+    if decision == "block":
+        blocked = True
+        status = "blocked"
+    elif decision == "manual_approval":
+        blocked = bool(request.approval_required) and not bool(request.approved)
+        status = "approved" if bool(request.approved) else "review_required"
+
+    top_group = (list(forecast.get("groups") or [])[:1] or [None])[0]
+    top_anomaly = (anomaly_rows[:1] or [None])[0]
+    top_incident = (list(sla.get("incidents") or [])[:1] or [None])[0]
+
+    recommendations: list[str] = []
+    if blocked:
+        recommendations.append("Bloquear mudanca ate reduzir risco preditivo e estabilizar SLA/compliance.")
+    elif decision == "manual_approval":
+        recommendations.append("Exigir aprovacao humana antes da execucao da mudanca neste escopo.")
+    else:
+        recommendations.append("Mudanca permitida; manter monitoramento reforcado durante a janela de execucao.")
+    if not bool(policy_eval.get("pass", True)):
+        recommendations.append("Executar enforcement da politica scoped antes de liberar a mudanca.")
+    if int(sla_by_risk.get("breached") or 0) > 0:
+        recommendations.append("Priorizar estabilizacao de incidentes breached antes de qualquer alteracao de producao.")
+
+    result = {
+        "phase": "phase-32-preventive-compliance-gates",
+        "change_ref": request.change_ref,
+        "change_summary": request.change_summary,
+        "gate_score": gate_score,
+        "gate_decision": decision,
+        "blocked": blocked,
+        "approval_required": bool(request.approval_required),
+        "approved": bool(request.approved),
+        "status": status,
+        "signals": signals,
+        "evidence": {
+            "policy_pass": bool(policy_eval.get("pass", True)),
+            "forecast_tiers": forecast_tiers,
+            "anomalies_count": int(anomalies.get("anomalies_count") or 0),
+            "sla_by_risk_tier": sla_by_risk,
+            "recent_open_incidents": recent_open_incidents,
+            "runbook_overall_avg": overall_avg_composite,
+            "top_forecast_group": top_group,
+            "top_anomaly": top_anomaly,
+            "top_sla_incident": top_incident,
+        },
+        "recommendations": recommendations,
+    }
+
+    if not request.dry_run:
+        entry = dict(result)
+        entry["evaluated_at"] = datetime.now().isoformat(timespec="seconds")
+        entry["scope"] = scope
+        _save_preventive_gate_run(entry)
+
+    return result
+
+
+def _phase32_preventive_gate_history(days: int = 30, limit: int = 100) -> dict[str, Any]:
+    rows = _load_preventive_gate_runs()
+    cutoff = datetime.now() - timedelta(days=int(days))
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        ts = str(row.get("evaluated_at") or "")
+        try:
+            if ts and datetime.fromisoformat(ts[:19]) >= cutoff:
+                filtered.append(row)
+        except ValueError:
+            filtered.append(row)
+    filtered = sorted(filtered, key=lambda row: str(row.get("evaluated_at") or ""), reverse=True)[: int(limit)]
+
+    by_decision: dict[str, int] = {"block": 0, "manual_approval": 0, "allow": 0}
+    by_status: dict[str, int] = {"blocked": 0, "review_required": 0, "approved": 0, "allowed": 0}
+    for row in filtered:
+        decision = str(row.get("gate_decision") or "allow")
+        status = str(row.get("status") or "allowed")
+        by_decision[decision] = int(by_decision.get(decision, 0)) + 1
+        by_status[status] = int(by_status.get(status, 0)) + 1
+
+    avg_gate_score = round(
+        sum(float(row.get("gate_score") or 0.0) for row in filtered) / max(len(filtered), 1),
+        2,
+    ) if filtered else 0.0
+
+    return {
+        "phase": "phase-32-preventive-gate-history",
+        "days": int(days),
+        "limit": int(limit),
+        "total_runs": len(filtered),
+        "avg_gate_score": avg_gate_score,
+        "by_decision": by_decision,
+        "by_status": by_status,
+        "runs": filtered,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -8875,6 +9218,19 @@ def assistant_runbooks_score_history(
     return {"ok": True, "result": _phase31_runbook_score_history(days=days, limit=limit)}
 
 
+@app.post("/assistant/compliance/preventive-gates/evaluate")
+def assistant_compliance_preventive_gates_evaluate(request: AssistantPhase32PreventiveGateRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase32_evaluate_preventive_gate(request)}
+
+
+@app.get("/assistant/compliance/preventive-gates/history")
+def assistant_compliance_preventive_gates_history(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase32_preventive_gate_history(days=days, limit=limit)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -9034,6 +9390,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase29_sla_temporal_escalation": True,
             "assistant_phase30_rca_clustering": True,
             "assistant_phase31_runbook_quality_score": True,
+            "assistant_phase32_preventive_compliance_gates": True,
         },
         "projects_root": str(project_root()),
     }

@@ -85,6 +85,8 @@
             "assistant_incidents_rca_history",
             "assistant_runbooks_score",
             "assistant_runbooks_score_history",
+            "assistant_compliance_preventive_gates_evaluate",
+            "assistant_compliance_preventive_gates_history",
             "health",
             "workspace_list",
             "workspace_search",
