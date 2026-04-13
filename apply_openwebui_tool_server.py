@@ -117,6 +117,14 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_correlation_forecast",
     "assistant_incidents_playbooks_run",
     "assistant_incidents_playbooks_history",
+    "assistant_incidents_postmortem",
+    "assistant_incidents_postmortems",
+    "assistant_incidents_metrics",
+    "assistant_incidents_anomalies",
+    "assistant_routing_rules_upsert",
+    "assistant_routing_rules_list",
+    "assistant_routing_resolve",
+    "assistant_routing_rules_delete",
     "health",
     "workspace_list",
     "workspace_search",
@@ -485,6 +493,30 @@ FIXED_PROMPTS = [
         "name": "Fase 22 Playbooks Preventivos por Forecast",
         "tags": ["fase22", "playbooks", "preventivo", "forecast"],
         "content": "Atue no modo Fase 22. Avalie o forecast de risco por grupo correlacionado e execute playbooks preventivos automaticos para grupos em tier high ou critical: forcanda intervalo de schedule, abrindo incidentes preditivos, atribuindo owner e alertando canais ops antes do escalonamento real."
+    },
+    {
+        "command": "fase23-postmortem",
+        "name": "Fase 23 Postmortem Automatico",
+        "tags": ["fase23", "postmortem", "incidentes"],
+        "content": "Atue no modo Fase 23. Para um incidente fechado, gere postmortem estruturado com timeline, checks falhos, politicas violadas, playbooks executados, duracao e action items priorizados para prevencao de reincidencia."
+    },
+    {
+        "command": "fase24-metricas-sre",
+        "name": "Fase 24 Metricas SRE MTTR MTTD MTTA",
+        "tags": ["fase24", "sre", "mttr", "mttd", "mtta"],
+        "content": "Atue no modo Fase 24. Calcule MTTD, MTTA e MTTR por severidade e escopo para o periodo configurado. Identifique gargalos de deteccao, reconhecimento e resolucao com ranking comparativo."
+    },
+    {
+        "command": "fase25-anomalia-incidentes",
+        "name": "Fase 25 Deteccao de Anomalias",
+        "tags": ["fase25", "anomalia", "spike", "z-score"],
+        "content": "Atue no modo Fase 25. Detecte spikes e padroes anomalos na frequencia de incidentes usando z-score por bucket de tempo configuravel. Identifique escopos com comportamento fora do padrao antes do forecast."
+    },
+    {
+        "command": "fase26-matriz-roteamento",
+        "name": "Fase 26 Matriz de Roteamento",
+        "tags": ["fase26", "routing", "owner", "sla"],
+        "content": "Atue no modo Fase 26. Crie e consulte regras de roteamento por tier, tenant e ambiente para centralizar owner, canal de alerta e SLA target. Resolva o roteamento dinamicamente para qualquer combinacao tier/tenant/env."
     }
 ]
 

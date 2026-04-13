@@ -735,6 +735,57 @@ class AssistantPhase22PlaybookRequest(BaseModel):
     limit: int = Field(default=5000, ge=100, le=50000)
 
 
+class AssistantPhase23PostmortemRequest(BaseModel):
+    incident_id: str = Field(min_length=1, max_length=120)
+    severity_on_close: Optional[str] = Field(default=None, min_length=1, max_length=20)
+    author: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    extra_notes: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    dry_run: bool = Field(default=False)
+
+
+class AssistantPhase23PostmortemListRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=30, ge=1, le=365)
+    limit: int = Field(default=200, ge=1, le=2000)
+
+
+class AssistantPhase24MetricsRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=30, ge=1, le=365)
+    limit: int = Field(default=5000, ge=100, le=50000)
+
+
+class AssistantPhase25AnomalyRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=30, ge=1, le=90)
+    bucket_hours: int = Field(default=24, ge=1, le=168)
+    z_threshold: float = Field(default=2.0, ge=0.5, le=5.0)
+    limit: int = Field(default=5000, ge=100, le=50000)
+
+
+class AssistantPhase26RoutingRuleRequest(BaseModel):
+    rule_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tier: str = Field(min_length=1, max_length=20)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    owner: str = Field(min_length=1, max_length=80)
+    channel: str = Field(min_length=1, max_length=80)
+    sla_target_minutes: int = Field(default=60, ge=1, le=10080)
+    priority: str = Field(default="P2", min_length=1, max_length=10)
+
+
+class AssistantPhase26RoutingResolveRequest(BaseModel):
+    tier: str = Field(min_length=1, max_length=20)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3024,6 +3075,8 @@ _REPORTS_POLICIES_FILE = _REPORTS_DIR / "policies.json"
 _REPORTS_AUDIT_LOGS_FILE = _REPORTS_DIR / "audit_logs.jsonl"
 _REPORTS_INCIDENTS_FILE = _REPORTS_DIR / "incidents.jsonl"
 _REPORTS_PLAYBOOKS_FILE = _REPORTS_DIR / "preventive_playbooks.jsonl"
+_REPORTS_POSTMORTEMS_FILE = _REPORTS_DIR / "postmortems.jsonl"
+_REPORTS_ROUTING_FILE = _REPORTS_DIR / "routing_rules.json"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -5236,6 +5289,455 @@ def _phase22_playbook_history(days: int = 30, limit: int = 500) -> dict[str, Any
     }
 
 
+# ── Phase 23: Postmortem ─────────────────────────────────────────────────────
+
+def _load_postmortems() -> list[dict[str, Any]]:
+    if not _REPORTS_POSTMORTEMS_FILE.exists():
+        return []
+    try:
+        items: list[dict[str, Any]] = []
+        with open(_REPORTS_POSTMORTEMS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                items.append(json.loads(line))
+        return items
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_POSTMORTEMS_FILE}: {exc}") from exc
+
+
+def _save_postmortem(entry: dict[str, Any]) -> None:
+    _REPORTS_POSTMORTEMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_POSTMORTEMS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar postmortem em {_REPORTS_POSTMORTEMS_FILE}: {exc}") from exc
+
+
+def _phase23_generate_postmortem(request: AssistantPhase23PostmortemRequest) -> dict[str, Any]:
+    incidents = _load_incidents()
+    incident: Optional[dict[str, Any]] = None
+    for inc in incidents:
+        if str(inc.get("incident_id") or "") == request.incident_id.strip():
+            incident = dict(inc)
+            break
+    if incident is None:
+        raise HTTPException(status_code=404, detail=f"Incidente '{request.incident_id}' nao encontrado")
+
+    status = str(incident.get("status") or "open").strip().lower()
+    if status not in {"closed", "deduplicated"}:
+        raise HTTPException(status_code=400, detail=f"Postmortem so pode ser gerado para incidentes fechados (status atual: {status})")
+
+    scope = dict(incident.get("scope") or {})
+    evaluation = dict(incident.get("last_evaluation") or {})
+    failed_checks = list(evaluation.get("failed_checks") or [])
+    enforced_policies = list(evaluation.get("enforced_policies") or [])
+
+    # collect playbook runs for this scope
+    playbook_runs = _load_playbooks()
+    scope_env = str(scope.get("environment") or "").strip().lower()
+    scope_tenant = str(scope.get("tenant_id") or "").strip().lower()
+    related_playbooks: list[dict[str, Any]] = [
+        r for r in playbook_runs
+        if str(r.get("environment") or "").strip().lower() == scope_env
+        and str(r.get("tenant_id") or "").strip().lower() == scope_tenant
+    ][:10]
+
+    opened_at = str(incident.get("created_at") or "")
+    closed_at = str(incident.get("closed_at") or "")
+
+    # compute duration minutes
+    duration_minutes: Optional[float] = None
+    try:
+        if opened_at and closed_at:
+            dt_open = datetime.fromisoformat(opened_at)
+            dt_close = datetime.fromisoformat(closed_at)
+            duration_minutes = round((dt_close - dt_open).total_seconds() / 60.0, 1)
+    except Exception:
+        pass
+
+    severity = str(request.severity_on_close or incident.get("severity") or "unknown").strip().lower()
+
+    # SRE action items from failed checks
+    action_items: list[str] = []
+    for chk in failed_checks[:5]:
+        action_items.append(f"Corrigir check '{chk}' e validar na proxima janela de conformidade")
+    if severity in {"sev1", "sev2"}:
+        action_items.append("Revisar runbook de resposta a incidentes criticos e atualizar contatos de escalonamento")
+    if duration_minutes and duration_minutes > 120:
+        action_items.append("Investigar causa do tempo de resolucao elevado e propor automacao de remediacao")
+    if not action_items:
+        action_items.append("Manter monitoramento proativo e revisar politicas periodicamente")
+
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    pm_id = f"pm-{datetime.now().strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 100000}"
+
+    postmortem: dict[str, Any] = {
+        "postmortem_id": pm_id,
+        "incident_id": request.incident_id.strip(),
+        "generated_at": now_iso,
+        "author": (request.author or "").strip() or "system",
+        "scope": scope,
+        "severity": severity,
+        "timeline": {
+            "opened_at": opened_at,
+            "closed_at": closed_at,
+            "duration_minutes": duration_minutes,
+        },
+        "failed_checks": failed_checks,
+        "enforced_policies": enforced_policies,
+        "related_playbook_runs": len(related_playbooks),
+        "playbook_steps_executed": sum(int(r.get("steps_count") or 0) for r in related_playbooks),
+        "impact_summary": {
+            "severity": severity,
+            "scope_label": f"{scope_tenant}/{scope_env}",
+            "project_scope": str(scope.get("project_scope") or ""),
+        },
+        "action_items": action_items,
+        "extra_notes": (request.extra_notes or "").strip() or None,
+        "dry_run": bool(request.dry_run),
+    }
+
+    if not request.dry_run:
+        _save_postmortem(postmortem)
+
+    return {"phase": "phase-23-postmortem", "postmortem": postmortem}
+
+
+def _phase23_list_postmortems(request: AssistantPhase23PostmortemListRequest) -> dict[str, Any]:
+    items = _load_postmortems()
+    cutoff = (datetime.now() - timedelta(days=request.days)).isoformat(timespec="seconds")
+    env_f = (request.environment or "").strip().lower()
+    tid_f = (request.tenant_id or "").strip().lower()
+    ps_f = (request.project_scope or "").strip().lower()
+    filtered: list[dict[str, Any]] = []
+    for pm in items:
+        if str(pm.get("generated_at") or "") < cutoff:
+            continue
+        scope = dict(pm.get("scope") or {})
+        if env_f and str(scope.get("environment") or "").strip().lower() != env_f:
+            continue
+        if tid_f and str(scope.get("tenant_id") or "").strip().lower() != tid_f:
+            continue
+        if ps_f and str(scope.get("project_scope") or "").strip().lower() != ps_f:
+            continue
+        filtered.append(pm)
+    filtered.sort(key=lambda p: str(p.get("generated_at") or ""), reverse=True)
+    filtered = filtered[:request.limit]
+    return {
+        "phase": "phase-23-postmortem-list",
+        "total": len(filtered),
+        "postmortems": filtered,
+    }
+
+
+# ── Phase 24: MTTR / MTTD / MTTA ────────────────────────────────────────────
+
+def _phase24_sre_metrics(request: AssistantPhase24MetricsRequest) -> dict[str, Any]:
+    incidents = _load_incidents()
+    cutoff = (datetime.now() - timedelta(days=request.days)).isoformat(timespec="seconds")
+    env_f = (request.environment or "").strip().lower()
+    tid_f = (request.tenant_id or "").strip().lower()
+    ps_f = (request.project_scope or "").strip().lower()
+
+    totals: dict[str, Any] = {k: 0 for k in ("total", "with_ttd", "with_ttr", "ttd_sum", "ttr_sum", "tta_sum", "with_tta")}
+    by_tier: dict[str, dict[str, Any]] = {}
+
+    for inc in incidents:
+        if str(inc.get("created_at") or "") < cutoff:
+            continue
+        scope = dict(inc.get("scope") or {})
+        if env_f and str(scope.get("environment") or "").strip().lower() != env_f:
+            continue
+        if tid_f and str(scope.get("tenant_id") or "").strip().lower() != tid_f:
+            continue
+        if ps_f and str(scope.get("project_scope") or "").strip().lower() != ps_f:
+            continue
+
+        sev = str(inc.get("severity") or "unknown").strip().lower()
+        if sev not in by_tier:
+            by_tier[sev] = {k: 0 for k in ("total", "with_ttd", "with_ttr", "ttd_sum", "ttr_sum", "tta_sum", "with_tta")}
+
+        totals["total"] += 1
+        by_tier[sev]["total"] += 1
+
+        created_at = str(inc.get("created_at") or "")
+        detected_at = str(inc.get("detected_at") or inc.get("created_at") or "")
+        acknowledged_at = str(inc.get("acknowledged_at") or "")
+        closed_at = str(inc.get("closed_at") or "")
+
+        try:
+            dt_created = datetime.fromisoformat(created_at) if created_at else None
+            dt_detected = datetime.fromisoformat(detected_at) if detected_at else None
+            dt_acked = datetime.fromisoformat(acknowledged_at) if acknowledged_at else None
+            dt_closed = datetime.fromisoformat(closed_at) if closed_at else None
+
+            if dt_detected and dt_created:
+                ttd = (dt_detected - dt_created).total_seconds() / 60.0
+                totals["ttd_sum"] += ttd
+                totals["with_ttd"] += 1
+                by_tier[sev]["ttd_sum"] += ttd
+                by_tier[sev]["with_ttd"] += 1
+
+            if dt_acked and dt_created:
+                tta = (dt_acked - dt_created).total_seconds() / 60.0
+                totals["tta_sum"] += tta
+                totals["with_tta"] += 1
+                by_tier[sev]["tta_sum"] += tta
+                by_tier[sev]["with_tta"] += 1
+
+            if dt_closed and dt_created:
+                ttr = (dt_closed - dt_created).total_seconds() / 60.0
+                totals["ttr_sum"] += ttr
+                totals["with_ttr"] += 1
+                by_tier[sev]["ttr_sum"] += ttr
+                by_tier[sev]["with_ttr"] += 1
+        except Exception:
+            pass
+
+    def _avg(s: float, n: int) -> Optional[float]:
+        return round(s / n, 1) if n > 0 else None
+
+    def _tier_metrics(d: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "total": d["total"],
+            "mttd_minutes": _avg(float(d["ttd_sum"]), int(d["with_ttd"])),
+            "mtta_minutes": _avg(float(d["tta_sum"]), int(d["with_tta"])),
+            "mttr_minutes": _avg(float(d["ttr_sum"]), int(d["with_ttr"])),
+        }
+
+    return {
+        "phase": "phase-24-sre-metrics",
+        "filters": {
+            "environment": env_f or None,
+            "tenant_id": tid_f or None,
+            "project_scope": ps_f or None,
+            "days": request.days,
+        },
+        "overall": _tier_metrics(totals),
+        "by_severity": {sev: _tier_metrics(data) for sev, data in sorted(by_tier.items())},
+    }
+
+
+# ── Phase 25: Anomaly Detection ──────────────────────────────────────────────
+
+def _phase25_anomaly_detection(request: AssistantPhase25AnomalyRequest) -> dict[str, Any]:
+    import math
+    incidents = _load_incidents()
+    cutoff = datetime.now() - timedelta(days=request.days)
+    env_f = (request.environment or "").strip().lower()
+    tid_f = (request.tenant_id or "").strip().lower()
+    ps_f = (request.project_scope or "").strip().lower()
+    bucket_hours = max(int(request.bucket_hours), 1)
+
+    # bucket incidents by (scope_key, bucket_index)
+    buckets: dict[tuple[str, int], int] = {}
+    scope_keys: set[str] = set()
+    max_bucket = 0
+
+    for inc in incidents:
+        created = str(inc.get("created_at") or "")
+        if not created:
+            continue
+        try:
+            dt = datetime.fromisoformat(created)
+        except Exception:
+            continue
+        if dt < cutoff:
+            continue
+
+        scope = dict(inc.get("scope") or {})
+        env_v = str(scope.get("environment") or "").strip().lower()
+        tid_v = str(scope.get("tenant_id") or "").strip().lower()
+        ps_v = str(scope.get("project_scope") or "").strip().lower()
+        if env_f and env_v != env_f:
+            continue
+        if tid_f and tid_v != tid_f:
+            continue
+        if ps_f and ps_v != ps_f:
+            continue
+
+        scope_key = f"{tid_v}|{env_v}|{ps_v}"
+        scope_keys.add(scope_key)
+        hours_ago = (datetime.now() - dt).total_seconds() / 3600.0
+        bucket_idx = int(hours_ago / bucket_hours)
+        max_bucket = max(max_bucket, bucket_idx)
+        buckets[(scope_key, bucket_idx)] = buckets.get((scope_key, bucket_idx), 0) + 1
+
+    total_buckets = max_bucket + 1
+    anomalies: list[dict[str, Any]] = []
+
+    for sk in scope_keys:
+        counts = [buckets.get((sk, b), 0) for b in range(total_buckets)]
+        if len(counts) < 2:
+            continue
+        mean = sum(counts) / len(counts)
+        variance = sum((c - mean) ** 2 for c in counts) / len(counts)
+        std = math.sqrt(variance)
+        for b_idx, count in enumerate(counts):
+            if std < 1e-9:
+                z = 0.0
+            else:
+                z = (count - mean) / std
+            if z >= float(request.z_threshold):
+                hours_from_now = b_idx * bucket_hours
+                bucket_start = (datetime.now() - timedelta(hours=hours_from_now + bucket_hours)).isoformat(timespec="seconds")
+                bucket_end = (datetime.now() - timedelta(hours=hours_from_now)).isoformat(timespec="seconds")
+                parts = sk.split("|", 2)
+                anomalies.append({
+                    "scope_key": sk,
+                    "tenant_id": parts[0] if len(parts) > 0 else "",
+                    "environment": parts[1] if len(parts) > 1 else "",
+                    "project_scope": parts[2] if len(parts) > 2 else "",
+                    "bucket_start": bucket_start,
+                    "bucket_end": bucket_end,
+                    "bucket_index": b_idx,
+                    "incident_count": count,
+                    "mean": round(mean, 2),
+                    "std": round(std, 2),
+                    "z_score": round(z, 2),
+                    "severity": "critical" if z >= float(request.z_threshold) * 1.5 else "high",
+                })
+
+    anomalies.sort(key=lambda a: float(a.get("z_score") or 0), reverse=True)
+
+    return {
+        "phase": "phase-25-anomaly-detection",
+        "filters": {
+            "environment": env_f or None,
+            "tenant_id": tid_f or None,
+            "project_scope": ps_f or None,
+            "days": request.days,
+            "bucket_hours": bucket_hours,
+            "z_threshold": float(request.z_threshold),
+        },
+        "scopes_analyzed": len(scope_keys),
+        "total_buckets": total_buckets,
+        "anomalies_count": len(anomalies),
+        "anomalies": anomalies,
+    }
+
+
+# ── Phase 26: Routing Matrix ──────────────────────────────────────────────────
+
+def _load_routing_rules() -> list[dict[str, Any]]:
+    if not _REPORTS_ROUTING_FILE.exists():
+        return []
+    try:
+        data = json.loads(_REPORTS_ROUTING_FILE.read_text(encoding="utf-8"))
+        return list(data) if isinstance(data, list) else []
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_ROUTING_FILE}: {exc}") from exc
+
+
+def _save_routing_rules(rules: list[dict[str, Any]]) -> None:
+    _REPORTS_ROUTING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _REPORTS_ROUTING_FILE.write_text(json.dumps(rules, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar routing rules em {_REPORTS_ROUTING_FILE}: {exc}") from exc
+
+
+def _phase26_upsert_rule(request: AssistantPhase26RoutingRuleRequest) -> dict[str, Any]:
+    rules = _load_routing_rules()
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    tier = request.tier.strip().lower()
+    env = (request.environment or "").strip().lower() or None
+    tenant = (request.tenant_id or "").strip().lower() or None
+
+    # determine rule_id
+    rule_id = (request.rule_id or "").strip()
+    if not rule_id:
+        rule_id = f"route-{tier}-{tenant or 'any'}-{env or 'any'}"
+
+    new_rule: dict[str, Any] = {
+        "rule_id": rule_id,
+        "tier": tier,
+        "tenant_id": tenant,
+        "environment": env,
+        "owner": request.owner.strip(),
+        "channel": request.channel.strip(),
+        "sla_target_minutes": int(request.sla_target_minutes),
+        "priority": request.priority.strip().upper(),
+        "updated_at": now_iso,
+    }
+
+    existing_idx = next((i for i, r in enumerate(rules) if str(r.get("rule_id") or "") == rule_id), None)
+    if existing_idx is not None:
+        rules[existing_idx] = new_rule
+        action = "updated"
+    else:
+        rules.append(new_rule)
+        action = "created"
+
+    _save_routing_rules(rules)
+    return {"phase": "phase-26-routing-upsert", "action": action, "rule": new_rule}
+
+
+def _phase26_resolve_route(request: AssistantPhase26RoutingResolveRequest) -> dict[str, Any]:
+    rules = _load_routing_rules()
+    tier = request.tier.strip().lower()
+    env = (request.environment or "").strip().lower() or None
+    tenant = (request.tenant_id or "").strip().lower() or None
+
+    # match priority: exact (tier+tenant+env) > tier+tenant > tier+env > tier-only
+    def _score(rule: dict[str, Any]) -> int:
+        if str(rule.get("tier") or "") != tier:
+            return -1
+        s = 0
+        if tenant and str(rule.get("tenant_id") or "") == tenant:
+            s += 4
+        elif rule.get("tenant_id") is not None:
+            return -1
+        if env and str(rule.get("environment") or "") == env:
+            s += 2
+        elif rule.get("environment") is not None:
+            return -1
+        return s
+
+    candidates = [(r, _score(r)) for r in rules]
+    candidates = [(r, s) for r, s in candidates if s >= 0]
+    if not candidates:
+        return {
+            "phase": "phase-26-routing-resolve",
+            "matched": False,
+            "tier": tier,
+            "tenant_id": tenant,
+            "environment": env,
+            "rule": None,
+        }
+    best_rule = max(candidates, key=lambda x: x[1])[0]
+    return {
+        "phase": "phase-26-routing-resolve",
+        "matched": True,
+        "tier": tier,
+        "tenant_id": tenant,
+        "environment": env,
+        "rule": best_rule,
+    }
+
+
+def _phase26_list_rules() -> dict[str, Any]:
+    rules = _load_routing_rules()
+    return {
+        "phase": "phase-26-routing-list",
+        "total": len(rules),
+        "rules": rules,
+    }
+
+
+def _phase26_delete_rule(rule_id: str) -> dict[str, Any]:
+    rules = _load_routing_rules()
+    before = len(rules)
+    rules = [r for r in rules if str(r.get("rule_id") or "") != rule_id.strip()]
+    if len(rules) == before:
+        raise HTTPException(status_code=404, detail=f"Regra '{rule_id}' nao encontrada")
+    _save_routing_rules(rules)
+    return {"phase": "phase-26-routing-delete", "deleted_rule_id": rule_id.strip(), "rules_remaining": len(rules)}
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -7125,6 +7627,89 @@ def assistant_incidents_playbooks_history(
     return {"ok": True, "result": _phase22_playbook_history(days=days, limit=limit)}
 
 
+@app.post("/assistant/incidents/postmortem")
+def assistant_incidents_postmortem(request: AssistantPhase23PostmortemRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase23_generate_postmortem(request)}
+
+
+@app.get("/assistant/incidents/postmortems")
+def assistant_incidents_postmortems(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    req = AssistantPhase23PostmortemListRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        days=days,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase23_list_postmortems(req)}
+
+
+@app.get("/assistant/incidents/metrics")
+def assistant_incidents_metrics(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=5000, ge=100, le=50000),
+) -> dict[str, Any]:
+    req = AssistantPhase24MetricsRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        days=days,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase24_sre_metrics(req)}
+
+
+@app.get("/assistant/incidents/anomalies")
+def assistant_incidents_anomalies(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    days: int = Query(default=30, ge=1, le=90),
+    bucket_hours: int = Query(default=24, ge=1, le=168),
+    z_threshold: float = Query(default=2.0, ge=0.5, le=5.0),
+    limit: int = Query(default=5000, ge=100, le=50000),
+) -> dict[str, Any]:
+    req = AssistantPhase25AnomalyRequest(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        days=days,
+        bucket_hours=bucket_hours,
+        z_threshold=z_threshold,
+        limit=limit,
+    )
+    return {"ok": True, "result": _phase25_anomaly_detection(req)}
+
+
+@app.post("/assistant/routing/rules")
+def assistant_routing_rules_upsert(request: AssistantPhase26RoutingRuleRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase26_upsert_rule(request)}
+
+
+@app.get("/assistant/routing/rules")
+def assistant_routing_rules_list() -> dict[str, Any]:
+    return {"ok": True, "result": _phase26_list_rules()}
+
+
+@app.post("/assistant/routing/resolve")
+def assistant_routing_resolve(request: AssistantPhase26RoutingResolveRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase26_resolve_route(request)}
+
+
+@app.delete("/assistant/routing/rules/{rule_id}")
+def assistant_routing_rules_delete(rule_id: str) -> dict[str, Any]:
+    return {"ok": True, "result": _phase26_delete_rule(rule_id)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -7274,6 +7859,10 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase20_multi_scope_correlation": True,
             "assistant_phase21_risk_forecast": True,
             "assistant_phase22_preventive_playbooks": True,
+            "assistant_phase23_postmortem": True,
+            "assistant_phase24_sre_metrics": True,
+            "assistant_phase25_anomaly_detection": True,
+            "assistant_phase26_routing_matrix": True,
         },
         "projects_root": str(project_root()),
     }
