@@ -671,6 +671,22 @@ class AssistantIncidentResolveRequest(BaseModel):
     dry_run: bool = False
 
 
+class AssistantIncidentReopenRequest(BaseModel):
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    force_reopen: bool = False
+    reopen_note: Optional[str] = None
+    severity_on_reopen: str = Field(default="sev2", description="sev1|sev2|sev3|sev4")
+    owner: Optional[str] = None
+    channel: str = Field(default="operations")
+    dry_run: bool = False
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -4249,6 +4265,137 @@ def _phase16_open_incident(
     return incident
 
 
+def _phase18_reopen_latest_closed_incident(
+    scope: dict[str, str],
+    severity: str,
+    owner: Optional[str],
+    channel: str,
+    reopen_note: Optional[str] = None,
+    dry_run: bool = False,
+) -> Optional[dict[str, Any]]:
+    incidents = _load_incidents()
+    latest_idx: Optional[int] = None
+    latest_closed_at = ""
+    for idx, item in enumerate(incidents):
+        item_scope = dict(item.get("scope") or {})
+        if (
+            str(item_scope.get("environment") or "").strip().lower() != scope["environment"]
+            or str(item_scope.get("tenant_id") or "").strip().lower() != scope["tenant_id"]
+            or str(item_scope.get("project_scope") or "").strip().lower() != scope["project_scope"]
+        ):
+            continue
+        if str(item.get("status") or "").strip().lower() != "closed":
+            continue
+        closed_at = str(item.get("closed_at") or item.get("created_at") or "")
+        if closed_at >= latest_closed_at:
+            latest_closed_at = closed_at
+            latest_idx = idx
+
+    if latest_idx is None:
+        return None
+
+    target = dict(incidents[latest_idx])
+    if dry_run:
+        return {
+            "incident_id": target.get("incident_id"),
+            "status": "open",
+            "reopened": True,
+            "dry_run": True,
+        }
+
+    target["status"] = "open"
+    target["reopened_at"] = datetime.now().isoformat(timespec="seconds")
+    target["reopened_by"] = "phase-18-regression-reopen"
+    target["reopen_note"] = (str(reopen_note or "").strip() or "regressao detectada no escopo")
+    target["severity"] = severity
+    target["owner"] = (str(owner or "").strip() or target.get("owner") or None)
+    target["channel"] = (str(channel or "").strip().lower() or target.get("channel") or "operations")
+    target["phase"] = "phase-18-incident-regression-reopen"
+    target["last_transition"] = "closed_to_open"
+    incidents[latest_idx] = target
+    _save_incidents(incidents)
+    return target
+
+
+def _phase18_reopen_on_regression(request: AssistantIncidentReopenRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+
+    severity = str(request.severity_on_reopen or "sev2").strip().lower()
+    if severity not in {"sev1", "sev2", "sev3", "sev4"}:
+        raise HTTPException(status_code=400, detail="severity_on_reopen invalido: use sev1|sev2|sev3|sev4")
+
+    scope = _phase11_scope_context(
+        environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
+    )
+    dashboard = _phase12_build_scoped_dashboard(
+        days=request.days,
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+        environment=scope["environment"],
+        tenant_id=scope["tenant_id"],
+        project_scope=scope["project_scope"],
+    )
+    policy = _phase13_find_policy(scope)
+    evaluation = _phase13_evaluate_scoped_policy(policy, dashboard)
+    pass_now = bool(evaluation.get("pass"))
+    should_reopen = bool(request.force_reopen or not pass_now)
+
+    reopened = None
+    if should_reopen:
+        reopened = _phase18_reopen_latest_closed_incident(
+            scope=scope,
+            severity=severity,
+            owner=request.owner,
+            channel=request.channel,
+            reopen_note=request.reopen_note,
+            dry_run=bool(request.dry_run),
+        )
+
+    if should_reopen and reopened is None and not request.dry_run:
+        reopened = _phase16_open_incident(
+            scope=scope,
+            enforcement_result={"evaluation_before": evaluation, "evaluation_after": evaluation, "actions": []},
+            severity=severity,
+            owner=request.owner,
+            channel=request.channel,
+        )
+
+    _phase14_record_audit_log(
+        AssistantAuditLogRequest(
+            operation="policy_escalate",
+            environment=scope["environment"],
+            tenant_id=scope["tenant_id"],
+            project_scope=scope["project_scope"],
+            status="warning" if should_reopen else "success",
+            details={
+                "phase": "phase-18",
+                "pass_now": pass_now,
+                "force_reopen": bool(request.force_reopen),
+                "should_reopen": should_reopen,
+                "reopened": bool(reopened),
+                "severity": severity,
+            },
+        ),
+        result={"evaluation_phase": evaluation.get("phase"), "incident_id": (reopened or {}).get("incident_id")},
+    )
+
+    return {
+        "phase": "phase-18-incident-regression-reopen",
+        "scope": scope,
+        "dry_run": bool(request.dry_run),
+        "policy": policy,
+        "evaluation": evaluation,
+        "pass_now": pass_now,
+        "should_reopen": should_reopen,
+        "incident": reopened,
+        "incident_reopened": bool(reopened),
+    }
+
+
 def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> dict[str, Any]:
     severity = str(request.severity_on_fail or "sev2").strip().lower()
     if severity not in {"sev1", "sev2", "sev3", "sev4"}:
@@ -4275,14 +4422,27 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
     should_escalate = bool(request.force_incident or not pass_after)
 
     incident = None
+    incident_reopened = False
+    incident_created = False
     if should_escalate and not request.dry_run:
-        incident = _phase16_open_incident(
+        incident = _phase18_reopen_latest_closed_incident(
             scope=scope,
-            enforcement_result=enforcement,
             severity=severity,
             owner=request.owner,
             channel=request.channel,
+            reopen_note="regressao detectada apos fase de conformidade",
+            dry_run=False,
         )
+        incident_reopened = bool(incident)
+        if incident is None:
+            incident = _phase16_open_incident(
+                scope=scope,
+                enforcement_result=enforcement,
+                severity=severity,
+                owner=request.owner,
+                channel=request.channel,
+            )
+            incident_created = bool(incident)
 
     closure_result = {
         "phase": "phase-17-incident-auto-closure",
@@ -4309,7 +4469,8 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
                 "dry_run": bool(request.dry_run),
                 "pass_after": pass_after,
                 "force_incident": bool(request.force_incident),
-                "incident_created": bool(incident),
+                "incident_created": incident_created,
+                "incident_reopened": incident_reopened,
                 "severity": severity,
                 "auto_closed_incidents": int(closure_result.get("closed_count") or 0),
             },
@@ -4324,7 +4485,8 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
         "severity_on_fail": severity,
         "enforcement": enforcement,
         "escalation_triggered": should_escalate,
-        "incident_created": bool(incident),
+        "incident_created": incident_created,
+        "incident_reopened": incident_reopened,
         "incident": incident,
         "auto_closure": closure_result,
     }
@@ -6224,6 +6386,11 @@ def assistant_incidents_close_resolved(request: AssistantIncidentResolveRequest)
     return {"ok": True, "result": _phase17_close_resolved_incidents(request)}
 
 
+@app.post("/assistant/incidents/reopen-regressed")
+def assistant_incidents_reopen_regressed(request: AssistantIncidentReopenRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase18_reopen_on_regression(request)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -6368,6 +6535,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase15_policy_enforcement": True,
             "assistant_phase16_incident_escalation": True,
             "assistant_phase17_auto_incident_closure": True,
+            "assistant_phase18_incident_regression_reopen": True,
         },
         "projects_root": str(project_root()),
     }

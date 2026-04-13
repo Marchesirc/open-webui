@@ -238,5 +238,15 @@
       "resolucao"
     ],
     "content": "Atue no modo Fase 17. Ao detectar conformidade restaurada no escopo, feche incidentes abertos automaticamente, registre motivo de fechamento e atualize o resumo de incidentes sem perder rastreabilidade."
+  },
+  {
+    "command": "fase18-reabertura-regressao",
+    "name": "Fase 18 Reabertura por Regressao",
+    "tags": [
+      "fase18",
+      "incidentes",
+      "regressao"
+    ],
+    "content": "Atue no modo Fase 18. Ao detectar regressao de conformidade em escopo com historico fechado, reabra o incidente mais recente, atualize severidade e registre trilha de auditoria da transicao closed para open."
   }
 ]

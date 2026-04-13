@@ -166,5 +166,12 @@
       "fechamento automatico"
     ],
     "content": "Execute a Fase 17: quando o escopo voltar para conformidade, feche incidentes abertos automaticamente, registre trilha de auditoria e mantenha apenas pendencias realmente ativas."
+  },
+  {
+    "title": [
+      "Fase 18",
+      "reabertura por regressao"
+    ],
+    "content": "Execute a Fase 18: se um escopo que estava estavel voltar a falhar, reabra incidente fechado automaticamente com severidade atualizada e rastreabilidade completa de regressao."
   }
 ]

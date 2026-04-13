@@ -110,6 +110,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents",
     "assistant_incidents_summary",
     "assistant_incidents_close_resolved",
+    "assistant_incidents_reopen_regressed",
     "health",
     "workspace_list",
     "workspace_search",
@@ -285,6 +286,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 17", "fechamento automatico"],
         "content": "Execute a Fase 17: quando o escopo voltar para conformidade, feche incidentes abertos automaticamente, registre trilha de auditoria e mantenha apenas pendencias realmente ativas."
+    },
+    {
+        "title": ["Fase 18", "reabertura por regressao"],
+        "content": "Execute a Fase 18: se um escopo que estava estavel voltar a falhar, reabra incidente fechado automaticamente com severidade atualizada e rastreabilidade completa de regressao."
     }
 ]
 
@@ -432,6 +437,12 @@ FIXED_PROMPTS = [
         "name": "Fase 17 Fechamento Automatico de Incidentes",
         "tags": ["fase17", "incidentes", "resolucao"],
         "content": "Atue no modo Fase 17. Ao detectar conformidade restaurada no escopo, feche incidentes abertos automaticamente, registre motivo de fechamento e atualize o resumo de incidentes sem perder rastreabilidade."
+    },
+    {
+        "command": "fase18-reabertura-regressao",
+        "name": "Fase 18 Reabertura por Regressao",
+        "tags": ["fase18", "incidentes", "regressao"],
+        "content": "Atue no modo Fase 18. Ao detectar regressao de conformidade em escopo com historico fechado, reabra o incidente mais recente, atualize severidade e registre trilha de auditoria da transicao closed para open."
     }
 ]
 
