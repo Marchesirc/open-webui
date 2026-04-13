@@ -109,6 +109,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_audit_summary",
     "assistant_incidents",
     "assistant_incidents_summary",
+    "assistant_incidents_close_resolved",
     "health",
     "workspace_list",
     "workspace_search",
@@ -280,6 +281,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 16", "escalonamento de incidentes"],
         "content": "Execute a Fase 16: apos enforcement da politica, abra incidente automatico quando o escopo permanecer em fail, classifique severidade e consolide visao de incidentes por tenant/projeto/ambiente."
+    },
+    {
+        "title": ["Fase 17", "fechamento automatico"],
+        "content": "Execute a Fase 17: quando o escopo voltar para conformidade, feche incidentes abertos automaticamente, registre trilha de auditoria e mantenha apenas pendencias realmente ativas."
     }
 ]
 
@@ -421,6 +426,12 @@ FIXED_PROMPTS = [
         "name": "Fase 16 Escalonamento de Incidentes",
         "tags": ["fase16", "incidentes", "escalonamento"],
         "content": "Atue no modo Fase 16. Se a politica continuar em fail apos enforcement, abra incidente automatico com severidade, owner e canal, e entregue resumo consolidado de incidentes por escopo."
+    },
+    {
+        "command": "fase17-fechamento-incidentes",
+        "name": "Fase 17 Fechamento Automatico de Incidentes",
+        "tags": ["fase17", "incidentes", "resolucao"],
+        "content": "Atue no modo Fase 17. Ao detectar conformidade restaurada no escopo, feche incidentes abertos automaticamente, registre motivo de fechamento e atualize o resumo de incidentes sem perder rastreabilidade."
     }
 ]
 

@@ -58,6 +58,7 @@
           "assistant_audit_summary",
           "assistant_incidents",
           "assistant_incidents_summary",
+          "assistant_incidents_close_resolved",
           "health",
           "workspace_list",
           "workspace_search",

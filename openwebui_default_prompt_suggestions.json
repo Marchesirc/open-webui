@@ -159,5 +159,12 @@
       "escalonamento de incidentes"
     ],
     "content": "Execute a Fase 16: apos enforcement da politica, abra incidente automatico quando o escopo permanecer em fail, classifique severidade e consolide visao de incidentes por tenant/projeto/ambiente."
+  },
+  {
+    "title": [
+      "Fase 17",
+      "fechamento automatico"
+    ],
+    "content": "Execute a Fase 17: quando o escopo voltar para conformidade, feche incidentes abertos automaticamente, registre trilha de auditoria e mantenha apenas pendencias realmente ativas."
   }
 ]

@@ -658,6 +658,19 @@ class AssistantPolicyEscalationRequest(BaseModel):
     dry_run: bool = False
 
 
+class AssistantIncidentResolveRequest(BaseModel):
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    force_close: bool = False
+    close_note: Optional[str] = None
+    dry_run: bool = False
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -4199,6 +4212,16 @@ def _save_incident(entry: dict[str, Any]) -> None:
         raise RuntimeError(f"Falha ao salvar incidente em {_REPORTS_INCIDENTS_FILE}: {exc}") from exc
 
 
+def _save_incidents(entries: list[dict[str, Any]]) -> None:
+    _REPORTS_INCIDENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_INCIDENTS_FILE, "w", encoding="utf-8") as f:
+            for item in entries:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar incidentes em {_REPORTS_INCIDENTS_FILE}: {exc}") from exc
+
+
 def _phase16_open_incident(
     scope: dict[str, str],
     enforcement_result: dict[str, Any],
@@ -4261,6 +4284,20 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
             channel=request.channel,
         )
 
+    closure_result = {
+        "phase": "phase-17-incident-auto-closure",
+        "scope": scope,
+        "dry_run": bool(request.dry_run),
+        "closed_count": 0,
+        "closed_incident_ids": [],
+    }
+    if pass_after:
+        closure_result = _phase17_close_open_incidents_for_scope(
+            scope=scope,
+            close_note="conformidade restaurada apos enforcement",
+            dry_run=bool(request.dry_run),
+        )
+
     _phase14_record_audit_log(
         AssistantAuditLogRequest(
             operation="policy_escalate",
@@ -4274,6 +4311,7 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
                 "force_incident": bool(request.force_incident),
                 "incident_created": bool(incident),
                 "severity": severity,
+                "auto_closed_incidents": int(closure_result.get("closed_count") or 0),
             },
         ),
         result={"enforcement_phase": enforcement.get("phase"), "incident_id": (incident or {}).get("incident_id")},
@@ -4288,6 +4326,7 @@ def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> 
         "escalation_triggered": should_escalate,
         "incident_created": bool(incident),
         "incident": incident,
+        "auto_closure": closure_result,
     }
 
 
@@ -4378,6 +4417,113 @@ def _phase16_incidents_summary(
         "total": len(items),
         "by_severity": by_severity,
         "by_status": by_status,
+    }
+
+
+def _phase17_close_open_incidents_for_scope(
+    scope: dict[str, str],
+    close_note: Optional[str] = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    incidents = _load_incidents()
+    closed_ids: list[str] = []
+    updated: list[dict[str, Any]] = []
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    note = (str(close_note or "").strip() or "scope voltou para conformidade")
+
+    for item in incidents:
+        mutable = dict(item)
+        item_scope = dict(mutable.get("scope") or {})
+        matches_scope = (
+            str(item_scope.get("environment") or "").strip().lower() == scope["environment"]
+            and str(item_scope.get("tenant_id") or "").strip().lower() == scope["tenant_id"]
+            and str(item_scope.get("project_scope") or "").strip().lower() == scope["project_scope"]
+        )
+        is_open = str(mutable.get("status") or "").strip().lower() == "open"
+        if matches_scope and is_open:
+            closed_ids.append(str(mutable.get("incident_id") or ""))
+            if not dry_run:
+                mutable["status"] = "closed"
+                mutable["closed_at"] = now_iso
+                mutable["closed_by"] = "phase-17-auto-closure"
+                mutable["close_note"] = note
+        updated.append(mutable)
+
+    if closed_ids and not dry_run:
+        _save_incidents(updated)
+
+    return {
+        "phase": "phase-17-incident-auto-closure",
+        "scope": scope,
+        "dry_run": bool(dry_run),
+        "closed_count": len(closed_ids),
+        "closed_incident_ids": closed_ids,
+    }
+
+
+def _phase17_close_resolved_incidents(request: AssistantIncidentResolveRequest) -> dict[str, Any]:
+    if request.critical_after_hours < request.warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+
+    scope = _phase11_scope_context(
+        environment=request.environment,
+        tenant_id=request.tenant_id,
+        project_scope=request.project_scope,
+    )
+    dashboard = _phase12_build_scoped_dashboard(
+        days=request.days,
+        warning_after_hours=request.warning_after_hours,
+        critical_after_hours=request.critical_after_hours,
+        limit=request.limit,
+        environment=scope["environment"],
+        tenant_id=scope["tenant_id"],
+        project_scope=scope["project_scope"],
+    )
+    policy = _phase13_find_policy(scope)
+    evaluation = _phase13_evaluate_scoped_policy(policy, dashboard)
+    pass_now = bool(evaluation.get("pass"))
+    should_close = bool(request.force_close or pass_now)
+
+    closure = {
+        "phase": "phase-17-incident-auto-closure",
+        "scope": scope,
+        "dry_run": bool(request.dry_run),
+        "closed_count": 0,
+        "closed_incident_ids": [],
+    }
+    if should_close:
+        closure = _phase17_close_open_incidents_for_scope(
+            scope=scope,
+            close_note=request.close_note,
+            dry_run=bool(request.dry_run),
+        )
+
+    _phase14_record_audit_log(
+        AssistantAuditLogRequest(
+            operation="policy_escalate",
+            environment=scope["environment"],
+            tenant_id=scope["tenant_id"],
+            project_scope=scope["project_scope"],
+            status="success" if closure.get("closed_count", 0) > 0 else "warning",
+            details={
+                "phase": "phase-17",
+                "pass_now": pass_now,
+                "force_close": bool(request.force_close),
+                "should_close": should_close,
+                "closed_count": int(closure.get("closed_count") or 0),
+            },
+        ),
+        result={"evaluation_phase": evaluation.get("phase"), "closure_phase": closure.get("phase")},
+    )
+
+    return {
+        "phase": "phase-17-resolved-incident-closure",
+        "scope": scope,
+        "policy": policy,
+        "evaluation": evaluation,
+        "pass_now": pass_now,
+        "should_close": should_close,
+        "closure": closure,
     }
 
 
@@ -6073,6 +6219,11 @@ def assistant_incidents_summary(
     }
 
 
+@app.post("/assistant/incidents/close-resolved")
+def assistant_incidents_close_resolved(request: AssistantIncidentResolveRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase17_close_resolved_incidents(request)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -6216,6 +6367,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase14_audit_logs": True,
             "assistant_phase15_policy_enforcement": True,
             "assistant_phase16_incident_escalation": True,
+            "assistant_phase17_auto_incident_closure": True,
         },
         "projects_root": str(project_root()),
     }

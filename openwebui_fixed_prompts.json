@@ -228,5 +228,15 @@
       "escalonamento"
     ],
     "content": "Atue no modo Fase 16. Se a politica continuar em fail apos enforcement, abra incidente automatico com severidade, owner e canal, e entregue resumo consolidado de incidentes por escopo."
+  },
+  {
+    "command": "fase17-fechamento-incidentes",
+    "name": "Fase 17 Fechamento Automatico de Incidentes",
+    "tags": [
+      "fase17",
+      "incidentes",
+      "resolucao"
+    ],
+    "content": "Atue no modo Fase 17. Ao detectar conformidade restaurada no escopo, feche incidentes abertos automaticamente, registre motivo de fechamento e atualize o resumo de incidentes sem perder rastreabilidade."
   }
 ]
