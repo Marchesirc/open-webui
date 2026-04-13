@@ -617,7 +617,7 @@ class AssistantScopedPolicyRequest(BaseModel):
 
 
 class AssistantAuditLogRequest(BaseModel):
-    operation: str = Field(..., description="policy_upsert|policy_list|policy_evaluate|policy_delete|policy_enforce")
+    operation: str = Field(..., description="policy_upsert|policy_list|policy_evaluate|policy_delete|policy_enforce|policy_escalate")
     environment: str = Field(default="default", min_length=1, max_length=80)
     tenant_id: str = Field(default="shared", min_length=1, max_length=80)
     project_scope: str = Field(default="general", min_length=1, max_length=120)
@@ -637,6 +637,24 @@ class AssistantPolicyEnforcementRequest(BaseModel):
     run_due_schedules_on_fail: bool = True
     create_snapshot_on_fail: bool = True
     snapshot_formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
+    dry_run: bool = False
+
+
+class AssistantPolicyEscalationRequest(BaseModel):
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    run_due_schedules_on_fail: bool = True
+    create_snapshot_on_fail: bool = True
+    snapshot_formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
+    force_incident: bool = False
+    severity_on_fail: str = Field(default="sev2", description="sev1|sev2|sev3|sev4")
+    owner: Optional[str] = None
+    channel: str = Field(default="operations")
     dry_run: bool = False
 
 
@@ -2927,6 +2945,7 @@ _REPORTS_INDEX_FILE = _REPORTS_DIR / "index.json"
 _REPORTS_SCHEDULES_FILE = _REPORTS_DIR / "schedules.json"
 _REPORTS_POLICIES_FILE = _REPORTS_DIR / "policies.json"
 _REPORTS_AUDIT_LOGS_FILE = _REPORTS_DIR / "audit_logs.jsonl"
+_REPORTS_INCIDENTS_FILE = _REPORTS_DIR / "incidents.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -4153,6 +4172,213 @@ def _phase15_enforce_scoped_policy(request: AssistantPolicyEnforcementRequest) -
         result=result,
     )
     return result
+
+
+def _load_incidents() -> list[dict[str, Any]]:
+    if not _REPORTS_INCIDENTS_FILE.exists():
+        return []
+    try:
+        incidents = []
+        with open(_REPORTS_INCIDENTS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                incidents.append(json.loads(line))
+        return incidents
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_INCIDENTS_FILE}: {exc}") from exc
+
+
+def _save_incident(entry: dict[str, Any]) -> None:
+    _REPORTS_INCIDENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_INCIDENTS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar incidente em {_REPORTS_INCIDENTS_FILE}: {exc}") from exc
+
+
+def _phase16_open_incident(
+    scope: dict[str, str],
+    enforcement_result: dict[str, Any],
+    severity: str,
+    owner: Optional[str],
+    channel: str,
+) -> dict[str, Any]:
+    incident_id = f"inc_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 100000}"
+    incident = {
+        "incident_id": incident_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "open",
+        "severity": severity,
+        "channel": (channel or "operations").strip().lower() or "operations",
+        "owner": (str(owner or "").strip() or None),
+        "scope": scope,
+        "phase": "phase-16-policy-escalation",
+        "source": "policy_enforcement",
+        "policy_pass_before": bool((enforcement_result.get("evaluation_before") or {}).get("pass")),
+        "policy_pass_after": bool((enforcement_result.get("evaluation_after") or {}).get("pass")),
+        "actions": [str(item.get("action") or "") for item in list(enforcement_result.get("actions") or [])],
+        "recommendations": list(((enforcement_result.get("evaluation_after") or {}).get("recommendations") or [])),
+    }
+    _save_incident(incident)
+    return incident
+
+
+def _phase16_enforce_and_escalate(request: AssistantPolicyEscalationRequest) -> dict[str, Any]:
+    severity = str(request.severity_on_fail or "sev2").strip().lower()
+    if severity not in {"sev1", "sev2", "sev3", "sev4"}:
+        raise HTTPException(status_code=400, detail="severity_on_fail invalido: use sev1|sev2|sev3|sev4")
+
+    enforcement = _phase15_enforce_scoped_policy(
+        AssistantPolicyEnforcementRequest(
+            days=request.days,
+            warning_after_hours=request.warning_after_hours,
+            critical_after_hours=request.critical_after_hours,
+            limit=request.limit,
+            environment=request.environment,
+            tenant_id=request.tenant_id,
+            project_scope=request.project_scope,
+            run_due_schedules_on_fail=bool(request.run_due_schedules_on_fail),
+            create_snapshot_on_fail=bool(request.create_snapshot_on_fail),
+            snapshot_formats=list(request.snapshot_formats or ["markdown", "json"]),
+            dry_run=bool(request.dry_run),
+        )
+    )
+
+    scope = dict(enforcement.get("scope") or {})
+    pass_after = bool((enforcement.get("evaluation_after") or {}).get("pass"))
+    should_escalate = bool(request.force_incident or not pass_after)
+
+    incident = None
+    if should_escalate and not request.dry_run:
+        incident = _phase16_open_incident(
+            scope=scope,
+            enforcement_result=enforcement,
+            severity=severity,
+            owner=request.owner,
+            channel=request.channel,
+        )
+
+    _phase14_record_audit_log(
+        AssistantAuditLogRequest(
+            operation="policy_escalate",
+            environment=scope.get("environment") or request.environment,
+            tenant_id=scope.get("tenant_id") or request.tenant_id,
+            project_scope=scope.get("project_scope") or request.project_scope,
+            status="warning" if should_escalate else "success",
+            details={
+                "dry_run": bool(request.dry_run),
+                "pass_after": pass_after,
+                "force_incident": bool(request.force_incident),
+                "incident_created": bool(incident),
+                "severity": severity,
+            },
+        ),
+        result={"enforcement_phase": enforcement.get("phase"), "incident_id": (incident or {}).get("incident_id")},
+    )
+
+    return {
+        "phase": "phase-16-policy-escalation",
+        "scope": scope,
+        "dry_run": bool(request.dry_run),
+        "severity_on_fail": severity,
+        "enforcement": enforcement,
+        "escalation_triggered": should_escalate,
+        "incident_created": bool(incident),
+        "incident": incident,
+    }
+
+
+def _phase16_list_incidents(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    days: int = 7,
+    limit: int = 200,
+) -> dict[str, Any]:
+    incidents = _load_incidents()
+    normalized_env = (environment or "").strip().lower() or None
+    normalized_tenant = (tenant_id or "").strip().lower() or None
+    normalized_project = (project_scope or "").strip().lower() or None
+    normalized_status = (status or "").strip().lower() or None
+    normalized_severity = (severity or "").strip().lower() or None
+    cutoff_time = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+
+    filtered = []
+    for item in incidents:
+        if str(item.get("created_at") or "") < cutoff_time:
+            continue
+        scope = dict(item.get("scope") or {})
+        if normalized_env and str(scope.get("environment") or "").strip().lower() != normalized_env:
+            continue
+        if normalized_tenant and str(scope.get("tenant_id") or "").strip().lower() != normalized_tenant:
+            continue
+        if normalized_project and str(scope.get("project_scope") or "").strip().lower() != normalized_project:
+            continue
+        if normalized_status and str(item.get("status") or "").strip().lower() != normalized_status:
+            continue
+        if normalized_severity and str(item.get("severity") or "").strip().lower() != normalized_severity:
+            continue
+        filtered.append(item)
+
+    filtered.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    filtered = filtered[:int(limit)]
+    return {
+        "phase": "phase-16-incidents-list",
+        "count": len(filtered),
+        "filters": {
+            "environment": normalized_env,
+            "tenant_id": normalized_tenant,
+            "project_scope": normalized_project,
+            "status": normalized_status,
+            "severity": normalized_severity,
+            "days": int(days),
+            "limit": int(limit),
+        },
+        "items": filtered,
+    }
+
+
+def _phase16_incidents_summary(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+    days: int = 7,
+) -> dict[str, Any]:
+    listed = _phase16_list_incidents(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        status=None,
+        severity=None,
+        days=days,
+        limit=5000,
+    )
+    items = list(listed.get("items") or [])
+    by_severity: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    for item in items:
+        sev = str(item.get("severity") or "unknown").strip().lower()
+        st = str(item.get("status") or "unknown").strip().lower()
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+        by_status[st] = by_status.get(st, 0) + 1
+
+    return {
+        "phase": "phase-16-incidents-summary",
+        "scope": {
+            "environment": (environment or "").strip().lower() or None,
+            "tenant_id": (tenant_id or "").strip().lower() or None,
+            "project_scope": (project_scope or "").strip().lower() or None,
+        },
+        "days": int(days),
+        "total": len(items),
+        "by_severity": by_severity,
+        "by_status": by_status,
+    }
 
 
 def _phase11_resolve_snapshot_dir(entry: dict[str, Any]) -> Optional[Path]:
@@ -5756,6 +5982,11 @@ def assistant_executive_policy_enforce(request: AssistantPolicyEnforcementReques
     return {"ok": True, "result": _phase15_enforce_scoped_policy(request)}
 
 
+@app.post("/assistant/executive/policy/enforce/escalate")
+def assistant_executive_policy_enforce_escalate(request: AssistantPolicyEscalationRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase16_enforce_and_escalate(request)}
+
+
 @app.post("/assistant/audit-log")
 def assistant_audit_log(request: AssistantAuditLogRequest) -> dict[str, Any]:
     result = _phase14_record_audit_log(request)
@@ -5798,6 +6029,48 @@ def assistant_audit_summary(
         days=days,
     )
     return {"ok": True, "result": result}
+
+
+@app.get("/assistant/incidents")
+def assistant_incidents(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
+    days: int = Query(default=7, ge=1, le=90),
+    limit: int = Query(default=200, ge=10, le=2000),
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "result": _phase16_list_incidents(
+            environment=environment,
+            tenant_id=tenant_id,
+            project_scope=project_scope,
+            status=status,
+            severity=severity,
+            days=days,
+            limit=limit,
+        ),
+    }
+
+
+@app.get("/assistant/incidents/summary")
+def assistant_incidents_summary(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    days: int = Query(default=7, ge=1, le=90),
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "result": _phase16_incidents_summary(
+            environment=environment,
+            tenant_id=tenant_id,
+            project_scope=project_scope,
+            days=days,
+        ),
+    }
 
 
 @app.post("/assistant/checkpoints/deduplicate")
@@ -5942,6 +6215,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase13_scoped_policy": True,
             "assistant_phase14_audit_logs": True,
             "assistant_phase15_policy_enforcement": True,
+            "assistant_phase16_incident_escalation": True,
         },
         "projects_root": str(project_root()),
     }

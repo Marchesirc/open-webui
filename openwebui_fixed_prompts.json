@@ -218,5 +218,15 @@
       "remediacao"
     ],
     "content": "Atue no modo Fase 15. Quando uma politica scoped falhar, execute remediacao automatica segura (rodar agendas vencidas e gerar snapshot), reavalie conformidade e registre trilha de auditoria da acao."
+  },
+  {
+    "command": "fase16-escalonamento-incidentes",
+    "name": "Fase 16 Escalonamento de Incidentes",
+    "tags": [
+      "fase16",
+      "incidentes",
+      "escalonamento"
+    ],
+    "content": "Atue no modo Fase 16. Se a politica continuar em fail apos enforcement, abra incidente automatico com severidade, owner e canal, e entregue resumo consolidado de incidentes por escopo."
   }
 ]

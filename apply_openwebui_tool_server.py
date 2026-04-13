@@ -95,6 +95,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_executive_policy_list",
     "assistant_executive_dashboard_scoped_policy",
     "assistant_executive_policy_enforce",
+    "assistant_executive_policy_enforce_escalate",
     "assistant_checkpoints_deduplicate",
     "assistant_executive_report",
     "assistant_executive_report_snapshot",
@@ -106,6 +107,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_audit_log",
     "assistant_audit_logs",
     "assistant_audit_summary",
+    "assistant_incidents",
+    "assistant_incidents_summary",
     "health",
     "workspace_list",
     "workspace_search",
@@ -273,6 +276,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 15", "enforcement automatico"],
         "content": "Execute a Fase 15: avalie conformidade por escopo e, em caso de falha, aplique remediacao automatica com execucao de agendas vencidas e geracao de snapshot para restaurar cobertura operacional."
+    },
+    {
+        "title": ["Fase 16", "escalonamento de incidentes"],
+        "content": "Execute a Fase 16: apos enforcement da politica, abra incidente automatico quando o escopo permanecer em fail, classifique severidade e consolide visao de incidentes por tenant/projeto/ambiente."
     }
 ]
 
@@ -408,6 +415,12 @@ FIXED_PROMPTS = [
         "name": "Fase 15 Enforcement de Politica",
         "tags": ["fase15", "enforcement", "remediacao"],
         "content": "Atue no modo Fase 15. Quando uma politica scoped falhar, execute remediacao automatica segura (rodar agendas vencidas e gerar snapshot), reavalie conformidade e registre trilha de auditoria da acao."
+    },
+    {
+        "command": "fase16-escalonamento-incidentes",
+        "name": "Fase 16 Escalonamento de Incidentes",
+        "tags": ["fase16", "incidentes", "escalonamento"],
+        "content": "Atue no modo Fase 16. Se a politica continuar em fail apos enforcement, abra incidente automatico com severidade, owner e canal, e entregue resumo consolidado de incidentes por escopo."
     }
 ]
 
