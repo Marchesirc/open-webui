@@ -11,6 +11,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
@@ -250,10 +251,20 @@ def _record_metric(path: str, method: str, status_code: int, duration_ms: float)
         )
         by_route[route] = stats
 
+@asynccontextmanager
+async def bridge_lifespan(_app: FastAPI):
+    try:
+        _phase10_run_due_schedules(limit=10)
+    except Exception:
+        pass
+    yield
+
+
 app = FastAPI(
     title="Professional Workspace & Proteus Bridge",
     version="1.2.0",
     description="Ponte local para o Open WebUI com automação do ISIS Proteus, busca web, leitura do workspace e execução controlada de comandos.",
+    lifespan=bridge_lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -550,11 +561,35 @@ class AssistantExecutiveSnapshotRequest(BaseModel):
     critical_after_hours: int = Field(default=24, ge=1, le=1440)
     limit: int = Field(default=200, ge=10, le=2000)
     snapshot_name: Optional[str] = None
+    environment: str = Field(default="manual")
 
 
 class AssistantReportCleanupRequest(BaseModel):
     retention_days: int = Field(default=30, ge=1, le=3650)
     apply_changes: bool = False
+    environment: Optional[str] = None
+
+
+class AssistantReportScheduleRequest(BaseModel):
+    schedule_id: str = Field(..., min_length=3, max_length=80)
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    enabled: bool = True
+    cadence: str = Field(default="daily", description="hourly|daily")
+    interval_hours: int = Field(default=24, ge=1, le=168)
+    hour_of_day: int = Field(default=8, ge=0, le=23)
+    formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
+    retention_days: int = Field(default=30, ge=1, le=3650)
+    days: int = Field(default=7, ge=1, le=90)
+    warning_after_hours: int = Field(default=4, ge=1, le=720)
+    critical_after_hours: int = Field(default=24, ge=1, le=1440)
+    limit: int = Field(default=200, ge=10, le=2000)
+    snapshot_prefix: Optional[str] = None
+
+
+class AssistantReportScheduleRunRequest(BaseModel):
+    environment: Optional[str] = None
+    force: bool = False
+    limit: int = Field(default=10, ge=1, le=100)
 
 
 def project_root() -> Path:
@@ -2840,6 +2875,7 @@ _MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
 _CHECKPOINT_FILE = _MEMORY_DIR / "checkpoints.jsonl"
 _REPORTS_DIR = BASE_DIR / "assistant_reports"
 _REPORTS_INDEX_FILE = _REPORTS_DIR / "index.json"
+_REPORTS_SCHEDULES_FILE = _REPORTS_DIR / "schedules.json"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -2885,6 +2921,7 @@ _PHASE6_QUEUE_POLICIES: dict[str, dict[str, Any]] = {
 
 _PHASE7_DEFAULT_DAYS = 7
 _PHASE9_DEFAULT_SNAPSHOT_FORMATS = ["markdown", "csv", "json"]
+_PHASE10_DEFAULT_ENVIRONMENT = "default"
 
 
 def _tokenize_text(text: str) -> set[str]:
@@ -3472,6 +3509,8 @@ def _ensure_reports_storage() -> None:
     _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     if not _REPORTS_INDEX_FILE.exists():
         _REPORTS_INDEX_FILE.write_text("[]\n", encoding="utf-8")
+    if not _REPORTS_SCHEDULES_FILE.exists():
+        _REPORTS_SCHEDULES_FILE.write_text("[]\n", encoding="utf-8")
 
 
 def _load_reports_index() -> list[dict[str, Any]]:
@@ -3488,6 +3527,22 @@ def _load_reports_index() -> list[dict[str, Any]]:
 def _save_reports_index(entries: list[dict[str, Any]]) -> None:
     _ensure_reports_storage()
     _REPORTS_INDEX_FILE.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _load_report_schedules() -> list[dict[str, Any]]:
+    _ensure_reports_storage()
+    try:
+        payload = json.loads(_REPORTS_SCHEDULES_FILE.read_text(encoding="utf-8"))
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def _save_report_schedules(entries: list[dict[str, Any]]) -> None:
+    _ensure_reports_storage()
+    _REPORTS_SCHEDULES_FILE.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def _phase8_recommendations(executive: dict[str, Any]) -> list[str]:
@@ -3661,6 +3716,8 @@ def _phase9_publish_snapshot(
     critical_after_hours: int,
     limit: int,
     snapshot_name: Optional[str] = None,
+    environment: str = _PHASE10_DEFAULT_ENVIRONMENT,
+    schedule_id: Optional[str] = None,
 ) -> dict[str, Any]:
     normalized_formats = []
     for report_format in formats or _PHASE9_DEFAULT_SNAPSHOT_FORMATS:
@@ -3695,6 +3752,8 @@ def _phase9_publish_snapshot(
     manifest = {
         "snapshot_id": snapshot_id,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "environment": (environment or _PHASE10_DEFAULT_ENVIRONMENT).strip() or _PHASE10_DEFAULT_ENVIRONMENT,
+        "schedule_id": (schedule_id or "").strip() or None,
         "window_days": days,
         "formats": normalized_formats,
         "files": exported_files,
@@ -3714,25 +3773,32 @@ def _phase9_publish_snapshot(
     }
 
 
-def _phase9_list_snapshots(limit: int = 20) -> dict[str, Any]:
+def _phase9_list_snapshots(limit: int = 20, environment: Optional[str] = None) -> dict[str, Any]:
     entries = _load_reports_index()
+    normalized_environment = (environment or "").strip().lower()
+    if normalized_environment:
+        entries = [entry for entry in entries if str(entry.get("environment") or "").strip().lower() == normalized_environment]
     entries.sort(key=lambda entry: str(entry.get("generated_at") or ""), reverse=True)
     return {
         "phase": "phase-9-report-index",
+        "environment": normalized_environment or None,
         "count": min(len(entries), limit),
         "items": entries[:limit],
     }
 
 
-def _phase9_cleanup_snapshots(retention_days: int, apply_changes: bool) -> dict[str, Any]:
+def _phase9_cleanup_snapshots(retention_days: int, apply_changes: bool, environment: Optional[str] = None) -> dict[str, Any]:
     entries = _load_reports_index()
     cutoff = datetime.now() - timedelta(days=retention_days)
     kept_entries: list[dict[str, Any]] = []
     removed_entries: list[dict[str, Any]] = []
+    normalized_environment = (environment or "").strip().lower()
 
     for entry in entries:
         ts = _parse_checkpoint_timestamp(entry.get("generated_at"))
-        if ts is not None and ts < cutoff:
+        entry_environment = str(entry.get("environment") or "").strip().lower()
+        matches_environment = not normalized_environment or entry_environment == normalized_environment
+        if matches_environment and ts is not None and ts < cutoff:
             removed_entries.append(entry)
         else:
             kept_entries.append(entry)
@@ -3749,11 +3815,189 @@ def _phase9_cleanup_snapshots(retention_days: int, apply_changes: bool) -> dict[
     return {
         "phase": "phase-9-report-cleanup",
         "applied": apply_changes,
+        "environment": normalized_environment or None,
         "retention_days": retention_days,
         "cutoff": cutoff.isoformat(timespec="seconds"),
         "removed_count": len(removed_entries),
         "kept_count": len(kept_entries),
         "removed_snapshots": removed_entries[:20],
+    }
+
+
+def _phase10_normalize_schedule(payload: dict[str, Any]) -> dict[str, Any]:
+    schedule_id = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(payload.get("schedule_id") or "").strip()).strip("._")
+    if not schedule_id:
+        raise HTTPException(status_code=400, detail="schedule_id invalido")
+
+    cadence = str(payload.get("cadence") or "daily").strip().lower()
+    if cadence not in {"hourly", "daily"}:
+        raise HTTPException(status_code=400, detail="cadence invalida: use hourly ou daily")
+
+    warning_after_hours = int(payload.get("warning_after_hours") or 4)
+    critical_after_hours = int(payload.get("critical_after_hours") or 24)
+    if critical_after_hours < warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+
+    formats = []
+    for item in list(payload.get("formats") or []):
+        fmt = str(item).strip().lower()
+        if fmt and fmt not in formats:
+            _phase8_report_extension(fmt)
+            formats.append(fmt)
+    if not formats:
+        formats = ["markdown", "json"]
+
+    return {
+        "schedule_id": schedule_id,
+        "environment": (str(payload.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT).strip() or _PHASE10_DEFAULT_ENVIRONMENT),
+        "enabled": bool(payload.get("enabled", True)),
+        "cadence": cadence,
+        "interval_hours": int(payload.get("interval_hours") or 24),
+        "hour_of_day": int(payload.get("hour_of_day") or 8),
+        "formats": formats,
+        "retention_days": int(payload.get("retention_days") or 30),
+        "days": int(payload.get("days") or 7),
+        "warning_after_hours": warning_after_hours,
+        "critical_after_hours": critical_after_hours,
+        "limit": int(payload.get("limit") or 200),
+        "snapshot_prefix": (str(payload.get("snapshot_prefix") or "").strip() or None),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _phase10_compute_next_run(schedule: dict[str, Any], now: Optional[datetime] = None) -> Optional[datetime]:
+    if not bool(schedule.get("enabled", True)):
+        return None
+    now = now or datetime.now()
+    cadence = str(schedule.get("cadence") or "daily").strip().lower()
+    last_run = _parse_checkpoint_timestamp(schedule.get("last_run_at"))
+    created_at = _parse_checkpoint_timestamp(schedule.get("created_at")) or now
+
+    if cadence == "hourly":
+        interval_hours = max(int(schedule.get("interval_hours") or 24), 1)
+        anchor = last_run or created_at
+        return anchor + timedelta(hours=interval_hours)
+
+    hour_of_day = int(schedule.get("hour_of_day") or 8)
+    base_date = (last_run or now).date()
+    candidate = datetime.combine(base_date, datetime.min.time()).replace(hour=hour_of_day)
+    if last_run is None:
+        if candidate < created_at:
+            candidate += timedelta(days=1)
+    else:
+        if candidate <= last_run:
+            candidate += timedelta(days=1)
+    return candidate
+
+
+def _phase10_upsert_schedule(request: AssistantReportScheduleRequest) -> dict[str, Any]:
+    schedule = _phase10_normalize_schedule(request.model_dump())
+    schedules = _load_report_schedules()
+    existing = next((item for item in schedules if str(item.get("schedule_id") or "") == schedule["schedule_id"]), None)
+    if existing:
+        schedule["created_at"] = existing.get("created_at") or datetime.now().isoformat(timespec="seconds")
+        schedule["last_run_at"] = existing.get("last_run_at")
+    else:
+        schedule["created_at"] = datetime.now().isoformat(timespec="seconds")
+        schedule["last_run_at"] = None
+
+    next_run = _phase10_compute_next_run(schedule)
+    schedule["next_run_at"] = next_run.isoformat(timespec="seconds") if next_run else None
+
+    schedules = [item for item in schedules if str(item.get("schedule_id") or "") != schedule["schedule_id"]]
+    schedules.append(schedule)
+    schedules.sort(key=lambda item: str(item.get("schedule_id") or ""))
+    _save_report_schedules(schedules)
+    return {"phase": "phase-10-report-schedule", "schedule": schedule}
+
+
+def _phase10_list_schedules(environment: Optional[str] = None) -> dict[str, Any]:
+    schedules = _load_report_schedules()
+    normalized_environment = (environment or "").strip().lower()
+    if normalized_environment:
+        schedules = [item for item in schedules if str(item.get("environment") or "").strip().lower() == normalized_environment]
+
+    now = datetime.now()
+    enriched = []
+    for item in schedules:
+        next_run = _phase10_compute_next_run(item, now=now)
+        enriched_item = dict(item)
+        enriched_item["next_run_at"] = next_run.isoformat(timespec="seconds") if next_run else None
+        enriched_item["due_now"] = bool(next_run and next_run <= now and enriched_item.get("enabled", True))
+        enriched.append(enriched_item)
+
+    enriched.sort(key=lambda item: str(item.get("schedule_id") or ""))
+    return {
+        "phase": "phase-10-report-schedules",
+        "environment": normalized_environment or None,
+        "count": len(enriched),
+        "items": enriched,
+    }
+
+
+def _phase10_run_due_schedules(environment: Optional[str] = None, force: bool = False, limit: int = 10) -> dict[str, Any]:
+    schedules = _load_report_schedules()
+    normalized_environment = (environment or "").strip().lower()
+    if normalized_environment:
+        schedules = [item for item in schedules if str(item.get("environment") or "").strip().lower() == normalized_environment]
+
+    now = datetime.now()
+    executed: list[dict[str, Any]] = []
+    updated_schedules: list[dict[str, Any]] = []
+
+    for schedule in schedules:
+        next_run = _phase10_compute_next_run(schedule, now=now)
+        due_now = bool(force or (next_run and next_run <= now))
+        if bool(schedule.get("enabled", True)) and due_now and len(executed) < limit:
+            snapshot_prefix = str(schedule.get("snapshot_prefix") or schedule.get("schedule_id") or "snapshot").strip()
+            snapshot_name = f"{snapshot_prefix}_{now.strftime('%Y%m%d_%H%M%S')}"
+            snapshot_result = _phase9_publish_snapshot(
+                formats=list(schedule.get("formats") or _PHASE9_DEFAULT_SNAPSHOT_FORMATS),
+                days=int(schedule.get("days") or 7),
+                warning_after_hours=int(schedule.get("warning_after_hours") or 4),
+                critical_after_hours=int(schedule.get("critical_after_hours") or 24),
+                limit=int(schedule.get("limit") or 200),
+                snapshot_name=snapshot_name,
+                environment=str(schedule.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+                schedule_id=str(schedule.get("schedule_id") or ""),
+            )
+            cleanup_result = _phase9_cleanup_snapshots(
+                retention_days=int(schedule.get("retention_days") or 30),
+                apply_changes=True,
+                environment=str(schedule.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+            )
+            schedule["last_run_at"] = now.isoformat(timespec="seconds")
+            next_future = _phase10_compute_next_run(schedule, now=now)
+            schedule["next_run_at"] = next_future.isoformat(timespec="seconds") if next_future else None
+            schedule["updated_at"] = now.isoformat(timespec="seconds")
+            executed.append(
+                {
+                    "schedule_id": schedule.get("schedule_id"),
+                    "environment": schedule.get("environment"),
+                    "snapshot": snapshot_result.get("snapshot"),
+                    "cleanup": {
+                        "removed_count": cleanup_result.get("removed_count"),
+                        "kept_count": cleanup_result.get("kept_count"),
+                    },
+                }
+            )
+
+        updated_schedules.append(schedule)
+
+    # Preserve schedules not filtered out by environment.
+    if normalized_environment:
+        untouched = [item for item in _load_report_schedules() if str(item.get("environment") or "").strip().lower() != normalized_environment]
+        updated_schedules = untouched + updated_schedules
+
+    updated_schedules.sort(key=lambda item: str(item.get("schedule_id") or ""))
+    _save_report_schedules(updated_schedules)
+
+    return {
+        "phase": "phase-10-report-runner",
+        "environment": normalized_environment or None,
+        "force": force,
+        "count": len(executed),
+        "items": executed,
     }
 
 
@@ -4545,18 +4789,44 @@ def assistant_executive_report_snapshot(request: AssistantExecutiveSnapshotReque
         critical_after_hours=request.critical_after_hours,
         limit=request.limit,
         snapshot_name=request.snapshot_name,
+        environment=request.environment,
     )
     return {"ok": True, "result": result}
 
 
 @app.get("/assistant/executive/report/index")
-def assistant_executive_report_index(limit: int = Query(default=20, ge=1, le=500)) -> dict[str, Any]:
-    return {"ok": True, "result": _phase9_list_snapshots(limit)}
+def assistant_executive_report_index(
+    limit: int = Query(default=20, ge=1, le=500),
+    environment: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase9_list_snapshots(limit, environment)}
 
 
 @app.post("/assistant/executive/report/cleanup")
 def assistant_executive_report_cleanup(request: AssistantReportCleanupRequest) -> dict[str, Any]:
-    return {"ok": True, "result": _phase9_cleanup_snapshots(request.retention_days, request.apply_changes)}
+    return {"ok": True, "result": _phase9_cleanup_snapshots(request.retention_days, request.apply_changes, request.environment)}
+
+
+@app.post("/assistant/executive/report/schedule")
+def assistant_executive_report_schedule(request: AssistantReportScheduleRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase10_upsert_schedule(request)}
+
+
+@app.get("/assistant/executive/report/schedule")
+def assistant_executive_report_schedule_list(environment: Optional[str] = Query(default=None)) -> dict[str, Any]:
+    return {"ok": True, "result": _phase10_list_schedules(environment)}
+
+
+@app.post("/assistant/executive/report/schedule/run")
+def assistant_executive_report_schedule_run(request: AssistantReportScheduleRunRequest) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "result": _phase10_run_due_schedules(
+            environment=request.environment,
+            force=bool(request.force),
+            limit=request.limit,
+        ),
+    }
 
 
 @app.get("/assistant/capabilities")
@@ -4594,6 +4864,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase8_executive_report": True,
             "assistant_phase9_report_snapshots": True,
             "assistant_phase9_report_retention": True,
+            "assistant_phase10_report_schedules": True,
+            "assistant_phase10_report_runner": True,
         },
         "projects_root": str(project_root()),
     }

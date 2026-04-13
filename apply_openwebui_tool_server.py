@@ -95,6 +95,9 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_executive_report_snapshot",
     "assistant_executive_report_index",
     "assistant_executive_report_cleanup",
+    "assistant_executive_report_schedule",
+    "assistant_executive_report_schedule_list",
+    "assistant_executive_report_schedule_run",
     "health",
     "workspace_list",
     "workspace_search",
@@ -238,6 +241,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 9", "snapshots e retencao"],
         "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
+    },
+    {
+        "title": ["Fase 10", "agendamento automatico"],
+        "content": "Execute a Fase 10: configure agendas horarias ou diarias de snapshots por ambiente, calcule proxima execucao, dispare jobs vencidos automaticamente e aplique retencao conforme a politica do ambiente."
     }
 ]
 
@@ -337,6 +344,12 @@ FIXED_PROMPTS = [
         "name": "Fase 9 Snapshots e Retencao",
         "tags": ["fase9", "snapshot", "retencao"],
         "content": "Atue no modo Fase 9. Gere snapshots versionados dos relatorios executivos, mantenha um indice consultavel das publicacoes e aplique politicas de retencao historica com limpeza controlada."
+    },
+    {
+        "command": "fase10-agendamento-relatorios",
+        "name": "Fase 10 Agendamento de Relatorios",
+        "tags": ["fase10", "agendamento", "automacao"],
+        "content": "Atue no modo Fase 10. Configure agendas horarias ou diarias de relatorios executivos por ambiente, acompanhe a proxima execucao, rode jobs vencidos e mantenha retencao automatica coerente com a politica operacional."
     }
 ]
 

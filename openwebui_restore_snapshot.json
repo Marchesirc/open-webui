@@ -112,6 +112,13 @@
         "snapshots e retencao"
       ],
       "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
+    },
+    {
+      "title": [
+        "Fase 10",
+        "agendamento automatico"
+      ],
+      "content": "Execute a Fase 10: configure agendas horarias ou diarias de snapshots por ambiente, calcule proxima execucao, dispare jobs vencidos automaticamente e aplique retencao conforme a politica do ambiente."
     }
   ],
   "default_prompt_suggestions": [
@@ -226,6 +233,13 @@
         "snapshots e retencao"
       ],
       "content": "Execute a Fase 9: publique snapshots versionados dos relatorios executivos, mantenha indice consultavel e aplique retencao historica para evitar crescimento operacional descontrolado."
+    },
+    {
+      "title": [
+        "Fase 10",
+        "agendamento automatico"
+      ],
+      "content": "Execute a Fase 10: configure agendas horarias ou diarias de snapshots por ambiente, calcule proxima execucao, dispare jobs vencidos automaticamente e aplique retencao conforme a politica do ambiente."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -389,6 +403,16 @@
         "retencao"
       ],
       "content": "Atue no modo Fase 9. Gere snapshots versionados dos relatorios executivos, mantenha um indice consultavel das publicacoes e aplique politicas de retencao historica com limpeza controlada."
+    },
+    {
+      "command": "fase10-agendamento-relatorios",
+      "name": "Fase 10 Agendamento de Relatorios",
+      "tags": [
+        "fase10",
+        "agendamento",
+        "automacao"
+      ],
+      "content": "Atue no modo Fase 10. Configure agendas horarias ou diarias de relatorios executivos por ambiente, acompanhe a proxima execucao, rode jobs vencidos e mantenha retencao automatica coerente com a politica operacional."
     }
   ],
   "bridge_url": "http://127.0.0.1:8001",

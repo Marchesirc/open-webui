@@ -158,5 +158,15 @@
       "retencao"
     ],
     "content": "Atue no modo Fase 9. Gere snapshots versionados dos relatorios executivos, mantenha um indice consultavel das publicacoes e aplique politicas de retencao historica com limpeza controlada."
+  },
+  {
+    "command": "fase10-agendamento-relatorios",
+    "name": "Fase 10 Agendamento de Relatorios",
+    "tags": [
+      "fase10",
+      "agendamento",
+      "automacao"
+    ],
+    "content": "Atue no modo Fase 10. Configure agendas horarias ou diarias de relatorios executivos por ambiente, acompanhe a proxima execucao, rode jobs vencidos e mantenha retencao automatica coerente com a politica operacional."
   }
 ]
