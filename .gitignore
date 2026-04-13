@@ -9,3 +9,4 @@ RELATORIO_OpenWebUI_Stack.md
 _Logs/
 *.user
 proteus_bridge_config.before-enterprise-safe.backup.json
+assistant_memory/

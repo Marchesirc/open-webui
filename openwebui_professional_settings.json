@@ -30,6 +30,8 @@
             "assistant_capabilities",
             "assistant_pipeline",
             "assistant_quality_gate",
+            "assistant_memory_add",
+            "assistant_memory_search",
             "health",
             "workspace_list",
             "workspace_search",
@@ -141,6 +143,13 @@
         "planner executor verifier"
       ],
       "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
+    },
+    {
+      "title": [
+        "Fase 2",
+        "memoria semantica local"
+      ],
+      "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -201,6 +210,13 @@
           "planner executor verifier"
         ],
         "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
+      },
+      {
+        "title": [
+          "Fase 2",
+          "memoria semantica local"
+        ],
+        "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
       }
     ],
     "default_locale": "pt-BR",

@@ -78,6 +78,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_capabilities",
     "assistant_pipeline",
     "assistant_quality_gate",
+    "assistant_memory_add",
+    "assistant_memory_search",
     "health",
     "workspace_list",
     "workspace_search",
@@ -189,6 +191,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 1", "planner executor verifier"],
         "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
+    },
+    {
+        "title": ["Fase 2", "memoria semantica local"],
+        "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
     }
 ]
 
@@ -240,6 +246,12 @@ FIXED_PROMPTS = [
         "name": "Fase 1 Planner Executor Verifier",
         "tags": ["fase1", "planner", "verifier"],
         "content": "Atue no modo Fase 1. Estruture a resposta em: Objetivo, Plano, Execucao, Validacao e Confianca (0-100). Sempre use evidencias locais quando possivel, destaque riscos e informe claramente se faltou alguma secao obrigatoria do contrato."
+    },
+    {
+        "command": "fase2-memoria",
+        "name": "Fase 2 Memoria Semantica",
+        "tags": ["fase2", "memoria", "contexto"],
+        "content": "Atue no modo Fase 2. Antes de responder, consulte memoria semantica local, reutilize padroes que funcionaram e indique explicitamente quais memorias sustentam a recomendacao."
     }
 ]
 

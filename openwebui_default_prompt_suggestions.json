@@ -54,5 +54,12 @@
       "planner executor verifier"
     ],
     "content": "Execute a Fase 1: monte um plano objetivo, rode verificacoes seguras com ferramentas locais, valide o resultado e finalize com score de confianca (0-100) e secoes obrigatorias da resposta."
+  },
+  {
+    "title": [
+      "Fase 2",
+      "memoria semantica local"
+    ],
+    "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
   }
 ]

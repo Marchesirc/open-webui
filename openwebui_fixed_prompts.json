@@ -78,5 +78,15 @@
       "verifier"
     ],
     "content": "Atue no modo Fase 1. Estruture a resposta em: Objetivo, Plano, Execucao, Validacao e Confianca (0-100). Sempre use evidencias locais quando possivel, destaque riscos e informe claramente se faltou alguma secao obrigatoria do contrato."
+  },
+  {
+    "command": "fase2-memoria",
+    "name": "Fase 2 Memoria Semantica",
+    "tags": [
+      "fase2",
+      "memoria",
+      "contexto"
+    ],
+    "content": "Atue no modo Fase 2. Antes de responder, consulte memoria semantica local, reutilize padroes que funcionaram e indique explicitamente quais memorias sustentam a recomendacao."
   }
 ]

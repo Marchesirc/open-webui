@@ -29,6 +29,8 @@
           "assistant_capabilities",
           "assistant_pipeline",
           "assistant_quality_gate",
+          "assistant_memory_add",
+          "assistant_memory_search",
           "health",
           "workspace_list",
           "workspace_search",

@@ -479,6 +479,21 @@ class AssistantQualityGateRequest(BaseModel):
     has_validation: bool = False
 
 
+class AssistantMemoryAddRequest(BaseModel):
+    category: str = Field(default="general", description="Categoria da memoria: incident|decision|pattern|general")
+    title: str = Field(..., description="Titulo curto da memoria")
+    content: str = Field(..., description="Conteudo principal da memoria")
+    tags: list[str] = Field(default_factory=list)
+    source: str = Field(default="manual")
+
+
+class AssistantMemorySearchRequest(BaseModel):
+    query: str
+    category: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2757,6 +2772,105 @@ _TASK_CONTRACTS: dict[str, dict[str, Any]] = {
     },
 }
 
+_MEMORY_DIR = BASE_DIR / "assistant_memory"
+_MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
+
+
+def _tokenize_text(text: str) -> set[str]:
+    normalized = re.sub(r"[^a-z0-9_\-\s]", " ", (text or "").lower())
+    return {token for token in normalized.split() if len(token) >= 3}
+
+
+def _memory_entry_tokens(entry: dict[str, Any]) -> set[str]:
+    chunks = [
+        str(entry.get("title", "")),
+        str(entry.get("content", "")),
+        " ".join(str(tag) for tag in entry.get("tags", [])),
+        str(entry.get("category", "")),
+    ]
+    return _tokenize_text(" ".join(chunks))
+
+
+def _ensure_memory_storage() -> None:
+    _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    if not _MEMORY_FILE.exists():
+        _MEMORY_FILE.write_text("", encoding="utf-8")
+
+
+def _append_memory_entry(entry: dict[str, Any]) -> None:
+    _ensure_memory_storage()
+    with _MEMORY_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _load_memory_entries() -> list[dict[str, Any]]:
+    _ensure_memory_storage()
+    entries: list[dict[str, Any]] = []
+    with _MEMORY_FILE.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    entries.append(payload)
+            except Exception:
+                continue
+    return entries
+
+
+def _score_memory_entry(query_tokens: set[str], entry: dict[str, Any]) -> float:
+    if not query_tokens:
+        return 0.0
+    entry_tokens = _memory_entry_tokens(entry)
+    overlap = len(query_tokens.intersection(entry_tokens))
+    if overlap == 0:
+        return 0.0
+    coverage = overlap / max(len(query_tokens), 1)
+    density = overlap / max(len(entry_tokens), 1)
+    return round((coverage * 0.75) + (density * 0.25), 4)
+
+
+def _memory_search(query: str, category: Optional[str] = None, tags: Optional[list[str]] = None, top_k: int = 5) -> dict[str, Any]:
+    tags = tags or []
+    tag_set = {str(tag).strip().lower() for tag in tags if str(tag).strip()}
+    q_tokens = _tokenize_text(query)
+    entries = _load_memory_entries()
+
+    scored: list[dict[str, Any]] = []
+    for entry in entries:
+        if category and str(entry.get("category", "")).lower() != category.lower():
+            continue
+        entry_tags = {str(tag).strip().lower() for tag in entry.get("tags", [])}
+        if tag_set and not tag_set.issubset(entry_tags):
+            continue
+        score = _score_memory_entry(q_tokens, entry)
+        if score <= 0:
+            continue
+        scored.append({"score": score, "entry": entry})
+
+    scored.sort(key=lambda item: item["score"], reverse=True)
+    limited = scored[: max(1, min(int(top_k), 20))]
+    return {
+        "ok": True,
+        "query": query,
+        "count": len(limited),
+        "results": [
+            {
+                "score": item["score"],
+                "id": item["entry"].get("id"),
+                "category": item["entry"].get("category"),
+                "title": item["entry"].get("title"),
+                "content": item["entry"].get("content"),
+                "tags": item["entry"].get("tags", []),
+                "source": item["entry"].get("source"),
+                "created_at": item["entry"].get("created_at"),
+            }
+            for item in limited
+        ],
+    }
+
 
 def _normalize_task_type(task_type: str) -> str:
     normalized = (task_type or "generic").strip().lower()
@@ -2835,6 +2949,12 @@ def _score_confidence(
 def _run_phase1_executor(request: AssistantPipelineRequest) -> dict[str, Any]:
     outputs: list[dict[str, Any]] = []
     task_type = _normalize_task_type(request.task_type)
+
+    try:
+        memory_hits = _memory_search(request.objective, top_k=max(3, request.max_results))
+        outputs.append({"check": "memory_retrieval", "ok": True, "data": memory_hits})
+    except Exception as exc:
+        outputs.append({"check": "memory_retrieval", "ok": False, "error": str(exc)})
 
     # Always capture a lightweight workspace context snapshot for traceability.
     try:
@@ -3198,6 +3318,35 @@ def assistant_quality_gate(request: AssistantQualityGateRequest) -> dict[str, An
     }
 
 
+@app.post("/assistant/memory/add")
+def assistant_memory_add(request: AssistantMemoryAddRequest) -> dict[str, Any]:
+    entry = {
+        "id": f"mem_{int(time.time() * 1000)}",
+        "category": (request.category or "general").strip().lower(),
+        "title": request.title.strip(),
+        "content": request.content.strip(),
+        "tags": [str(tag).strip().lower() for tag in request.tags if str(tag).strip()],
+        "source": request.source.strip() or "manual",
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    if not entry["title"] or not entry["content"]:
+        raise HTTPException(status_code=400, detail="title e content sao obrigatorios")
+    _append_memory_entry(entry)
+    return {"ok": True, "entry": entry}
+
+
+@app.post("/assistant/memory/search")
+def assistant_memory_search(request: AssistantMemorySearchRequest) -> dict[str, Any]:
+    if not (request.query or "").strip():
+        raise HTTPException(status_code=400, detail="query obrigatoria")
+    return _memory_search(
+        query=request.query,
+        category=request.category,
+        tags=request.tags,
+        top_k=request.top_k,
+    )
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -3218,6 +3367,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "network_diagnostics": True,
             "assistant_phase1_pipeline": True,
             "assistant_quality_gate": True,
+            "assistant_phase2_memory": True,
         },
         "projects_root": str(project_root()),
     }
