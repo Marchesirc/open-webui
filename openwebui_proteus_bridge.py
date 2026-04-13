@@ -3648,6 +3648,152 @@ def _phase11_resolve_snapshot_dir(entry: dict[str, Any]) -> Optional[Path]:
     return scoped_candidate
 
 
+def _phase12_build_scoped_dashboard(
+    days: int,
+    warning_after_hours: int,
+    critical_after_hours: int,
+    limit: int,
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, Any]:
+    if days < 1:
+        days = 1
+
+    normalized_environment = (environment or "").strip().lower() or None
+    normalized_tenant = (tenant_id or "").strip().lower() or None
+    normalized_project = (project_scope or "").strip().lower() or None
+
+    snapshots = [
+        entry
+        for entry in _load_reports_index()
+        if _phase11_matches_scope(
+            entry,
+            environment=normalized_environment,
+            tenant_id=normalized_tenant,
+            project_scope=normalized_project,
+        )
+    ]
+    schedules = [
+        entry
+        for entry in _load_report_schedules()
+        if _phase11_matches_scope(
+            entry,
+            environment=normalized_environment,
+            tenant_id=normalized_tenant,
+            project_scope=normalized_project,
+        )
+    ]
+
+    snapshots.sort(key=lambda item: str(item.get("generated_at") or ""), reverse=True)
+    schedules.sort(key=lambda item: str(item.get("schedule_id") or ""))
+
+    now = datetime.now()
+    cutoff = now - timedelta(days=days)
+    timeline: dict[str, dict[str, int]] = {}
+    recent_snapshots = 0
+    for entry in snapshots:
+        ts = _parse_checkpoint_timestamp(entry.get("generated_at"))
+        if ts is None or ts < cutoff:
+            continue
+        recent_snapshots += 1
+        bucket = ts.strftime("%Y-%m-%d")
+        row = timeline.setdefault(bucket, {"risk": 0, "sla": 0, "compliance": 0, "events": 0})
+        row["events"] += 1
+
+    due_schedules = 0
+    enabled_schedules = 0
+    for schedule in schedules:
+        if bool(schedule.get("enabled", True)):
+            enabled_schedules += 1
+        next_run = _phase10_compute_next_run(schedule, now=now)
+        if bool(schedule.get("enabled", True)) and next_run and next_run <= now:
+            due_schedules += 1
+
+    alerts: list[str] = []
+    if not snapshots:
+        alerts.append("Nenhum snapshot encontrado para o escopo informado")
+    if enabled_schedules and due_schedules:
+        alerts.append(f"{due_schedules} agenda(s) vencida(s) no escopo")
+    if not alerts:
+        alerts.append("Escopo monitorado sem alertas criticos")
+
+    unique_tenants = {str(item.get("tenant_id") or "").strip().lower() for item in snapshots + schedules if str(item.get("tenant_id") or "").strip()}
+    unique_projects = {str(item.get("project_scope") or "").strip().lower() for item in snapshots + schedules if str(item.get("project_scope") or "").strip()}
+    unique_environments = {str(item.get("environment") or "").strip().lower() for item in snapshots + schedules if str(item.get("environment") or "").strip()}
+
+    latest_snapshot_at = None
+    if snapshots:
+        latest_snapshot_at = snapshots[0].get("generated_at")
+
+    summary_metrics = {
+        "open_risk": 0,
+        "open_sla": 0,
+        "open_compliance": 0,
+        "tracked_records": len(snapshots),
+        "deduplicated_events": 0,
+        "duplicate_events_removed": 0,
+        "snapshot_count": len(snapshots),
+        "recent_snapshots": recent_snapshots,
+        "schedule_count": len(schedules),
+        "enabled_schedules": enabled_schedules,
+        "due_schedules": due_schedules,
+    }
+
+    scope_info = {
+        "environment": normalized_environment,
+        "tenant_id": normalized_tenant,
+        "project_scope": normalized_project,
+        "coverage": {
+            "tenants": len(unique_tenants),
+            "projects": len(unique_projects),
+            "environments": len(unique_environments),
+        },
+    }
+
+    sorted_days = sorted(timeline.keys())
+    queue_history = {
+        "risk": [{"date": day, "count": int(timeline[day].get("risk", 0))} for day in sorted_days],
+        "sla": [{"date": day, "count": int(timeline[day].get("sla", 0))} for day in sorted_days],
+        "compliance": [{"date": day, "count": int(timeline[day].get("compliance", 0))} for day in sorted_days],
+    }
+
+    return {
+        "phase": "phase-12-scoped-executive-dashboard",
+        "window_days": days,
+        "scope": scope_info,
+        "summary": summary_metrics,
+        "latest_snapshot_at": latest_snapshot_at,
+        "alerts": alerts,
+        "timeline": [{"date": day, **timeline[day]} for day in sorted_days],
+        "queue_history": queue_history,
+        "operations": {
+            "phase": "phase-12-scoped-operations",
+            "thresholds": {
+                "warning_after_hours": warning_after_hours,
+                "critical_after_hours": critical_after_hours,
+            },
+            "counts": {
+                "risk": 0,
+                "sla": 0,
+                "compliance": 0,
+                "total_records": len(snapshots),
+                "schedules": len(schedules),
+                "due_schedules": due_schedules,
+            },
+            "queues": {"risk": [], "sla": [], "compliance": []},
+            "recent_snapshots": snapshots[: max(1, min(limit, 50))],
+            "schedules": schedules[: max(1, min(limit, 50))],
+            "alerts": alerts,
+        },
+        "deduplication": {
+            "input_count": len(snapshots),
+            "kept_count": len(snapshots),
+            "duplicate_count": 0,
+        },
+    }
+
+
 def _phase8_recommendations(executive: dict[str, Any]) -> list[str]:
     summary = executive.get("summary") or {}
     operations = executive.get("operations") or {}
@@ -3753,8 +3899,29 @@ def _phase8_render_report_content(payload: dict[str, Any], report_format: str) -
     raise HTTPException(status_code=400, detail="report_format invalido: use json, csv ou markdown")
 
 
-def _phase8_build_report_payload(days: int, warning_after_hours: int, critical_after_hours: int, limit: int, report_format: str) -> dict[str, Any]:
-    executive = _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)
+def _phase8_build_report_payload(
+    days: int,
+    warning_after_hours: int,
+    critical_after_hours: int,
+    limit: int,
+    report_format: str,
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, Any]:
+    use_scoped_dashboard = bool((environment or "").strip() or (tenant_id or "").strip() or (project_scope or "").strip())
+    if use_scoped_dashboard:
+        executive = _phase12_build_scoped_dashboard(
+            days=days,
+            warning_after_hours=warning_after_hours,
+            critical_after_hours=critical_after_hours,
+            limit=limit,
+            environment=environment,
+            tenant_id=tenant_id,
+            project_scope=project_scope,
+        )
+    else:
+        executive = _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)
     return {
         "phase": "phase-8-executive-report",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -3791,7 +3958,16 @@ def _phase8_export_executive_report(
     tenant_id: str = _PHASE11_DEFAULT_TENANT_ID,
     project_scope: str = _PHASE11_DEFAULT_PROJECT_SCOPE,
 ) -> dict[str, Any]:
-    payload = _phase8_build_report_payload(days, warning_after_hours, critical_after_hours, limit, report_format)
+    payload = _phase8_build_report_payload(
+        days,
+        warning_after_hours,
+        critical_after_hours,
+        limit,
+        report_format,
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+    )
     content = _phase8_render_report_content(payload, payload["report_format"])
     scope = _phase11_scope_context(environment=environment, tenant_id=tenant_id, project_scope=project_scope)
 
@@ -3845,7 +4021,16 @@ def _phase9_publish_snapshot(
 
     exported_files: list[dict[str, Any]] = []
     for report_format in normalized_formats:
-        payload = _phase8_build_report_payload(days, warning_after_hours, critical_after_hours, limit, report_format)
+        payload = _phase8_build_report_payload(
+            days,
+            warning_after_hours,
+            critical_after_hours,
+            limit,
+            report_format,
+            environment=scope["environment"],
+            tenant_id=scope["tenant_id"],
+            project_scope=scope["project_scope"],
+        )
         content = _phase8_render_report_content(payload, report_format)
         extension = _phase8_report_extension(report_format)
         file_name = _phase8_safe_report_name(f"{snapshot_id}_{report_format}", extension)
@@ -4954,6 +5139,32 @@ def assistant_executive_dashboard(
     return {"ok": True, "result": _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)}
 
 
+@app.get("/assistant/executive/dashboard/scoped")
+def assistant_executive_dashboard_scoped(
+    days: int = Query(default=_PHASE7_DEFAULT_DAYS, ge=1, le=90),
+    warning_after_hours: int = Query(default=_PHASE5_SLA_WARNING_HOURS, ge=1, le=720),
+    critical_after_hours: int = Query(default=_PHASE5_SLA_CRITICAL_HOURS, ge=1, le=1440),
+    limit: int = Query(default=200, ge=10, le=2000),
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    if critical_after_hours < warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    return {
+        "ok": True,
+        "result": _phase12_build_scoped_dashboard(
+            days=days,
+            warning_after_hours=warning_after_hours,
+            critical_after_hours=critical_after_hours,
+            limit=limit,
+            environment=environment,
+            tenant_id=tenant_id,
+            project_scope=project_scope,
+        ),
+    }
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -5092,6 +5303,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase10_report_schedules": True,
             "assistant_phase10_report_runner": True,
             "assistant_phase11_multi_tenant_reports": True,
+            "assistant_phase12_scoped_dashboard": True,
         },
         "projects_root": str(project_root()),
     }

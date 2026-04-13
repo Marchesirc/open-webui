@@ -178,5 +178,15 @@
       "projetos"
     ],
     "content": "Atue no modo Fase 11. Separe relatorios, snapshots e agendas por tenant, projeto e ambiente, consulte filtros compostos antes de agir e mantenha o historico operacional isolado por escopo."
+  },
+  {
+    "command": "fase12-dashboard-escopo",
+    "name": "Fase 12 Dashboard Executivo por Escopo",
+    "tags": [
+      "fase12",
+      "dashboard",
+      "tenant"
+    ],
+    "content": "Atue no modo Fase 12. Monte um dashboard executivo filtrado por tenant, projeto e ambiente, destaque snapshots recentes, agendas vencidas e lacunas de cobertura para orientar a proxima acao."
   }
 ]

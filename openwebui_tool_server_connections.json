@@ -39,6 +39,7 @@
           "assistant_operations_policies",
           "assistant_operations_escalate",
           "assistant_executive_dashboard",
+          "assistant_executive_dashboard_scoped",
           "assistant_checkpoints_deduplicate",
           "assistant_executive_report",
           "assistant_executive_report_snapshot",

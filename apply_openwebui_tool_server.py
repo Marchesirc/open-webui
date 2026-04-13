@@ -90,6 +90,7 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_operations_policies",
     "assistant_operations_escalate",
     "assistant_executive_dashboard",
+    "assistant_executive_dashboard_scoped",
     "assistant_checkpoints_deduplicate",
     "assistant_executive_report",
     "assistant_executive_report_snapshot",
@@ -249,6 +250,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 11", "multi-tenant e projetos"],
         "content": "Execute a Fase 11: segregue relatorios, snapshots e agendas por tenant, projeto e ambiente, mantenha filtros compostos consistentes e preserve compatibilidade com operacao existente."
+    },
+    {
+        "title": ["Fase 12", "dashboard por escopo"],
+        "content": "Execute a Fase 12: gere dashboard executivo filtrado por tenant, projeto e ambiente, acompanhe snapshots recentes, agendas vencidas e cobertura de escopo para decisao operacional." 
     }
 ]
 
@@ -360,6 +365,12 @@ FIXED_PROMPTS = [
         "name": "Fase 11 Multi-Tenant e Projetos",
         "tags": ["fase11", "tenant", "projetos"],
         "content": "Atue no modo Fase 11. Separe relatorios, snapshots e agendas por tenant, projeto e ambiente, consulte filtros compostos antes de agir e mantenha o historico operacional isolado por escopo."
+    },
+    {
+        "command": "fase12-dashboard-escopo",
+        "name": "Fase 12 Dashboard Executivo por Escopo",
+        "tags": ["fase12", "dashboard", "tenant"],
+        "content": "Atue no modo Fase 12. Monte um dashboard executivo filtrado por tenant, projeto e ambiente, destaque snapshots recentes, agendas vencidas e lacunas de cobertura para orientar a proxima acao." 
     }
 ]
 
