@@ -315,6 +315,21 @@ if ([string]::IsNullOrWhiteSpace($env:CORS_ALLOW_ORIGIN)) {
     Write-Host "CORS_ALLOW_ORIGIN aplicado (escopo do processo): $recommendedCors" -ForegroundColor Green
 }
 
+if ($env:DEFAULT_LOCALE -ne 'pt-BR') {
+    $env:DEFAULT_LOCALE = 'pt-BR'
+    Write-Host 'DEFAULT_LOCALE aplicado (escopo do processo): pt-BR' -ForegroundColor Green
+}
+
+if ($env:PYTHONUTF8 -ne '1') {
+    $env:PYTHONUTF8 = '1'
+    Write-Host 'PYTHONUTF8 aplicado (escopo do processo): 1' -ForegroundColor Green
+}
+
+if ($env:PYTHONIOENCODING -ne 'utf-8') {
+    $env:PYTHONIOENCODING = 'utf-8'
+    Write-Host 'PYTHONIOENCODING aplicado (escopo do processo): utf-8' -ForegroundColor Green
+}
+
 if ($Foreground) {
     & $pythonExe -m uvicorn open_webui.main:app --host 127.0.0.1 --port $webUiPort
 } else {

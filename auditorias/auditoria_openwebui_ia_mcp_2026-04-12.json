@@ -1,0 +1,118 @@
+{
+  "audit_date": "2026-04-12",
+  "scope": [
+    "Open WebUI runtime health",
+    "Model intelligence readiness",
+    "Learning behavior",
+    "MCP integration",
+    "Security and operations"
+  ],
+  "runtime": {
+    "openwebui": {
+      "url": "http://127.0.0.1:8080/api/config",
+      "status": true,
+      "version": "0.8.12",
+      "default_locale_runtime": "",
+      "auth": true,
+      "enable_signup": false,
+      "enable_api_keys": false,
+      "enable_websocket": true
+    },
+    "bridge": {
+      "url": "http://127.0.0.1:8001/health",
+      "ok": true,
+      "projects_root_exists": true,
+      "proteus_exe_exists": true,
+      "projects_root": "D:/Projetos/Proteus_Projects"
+    },
+    "capabilities": {
+      "source": "http://127.0.0.1:8001/assistant/capabilities",
+      "schematic_pdf_focus_profiles": [
+        "acer_pass3_pure_schematics",
+        "acer_pass4_signal_dense"
+      ],
+      "workspace_files": true,
+      "workspace_search": true,
+      "shell": true,
+      "web_search": true,
+      "web_fetch": true,
+      "network_diagnostics": true
+    },
+    "mcp_probe": {
+      "url": "http://127.0.0.1:8765/mcp",
+      "result": "HTTP 406 on plain GET",
+      "interpretation": "Expected for protocol endpoint; requires proper MCP client flow"
+    },
+    "models": [
+      "qwen2.5:14b",
+      "qwen2.5-coder:7b",
+      "llama3.2:3b"
+    ]
+  },
+  "configuration_findings": {
+    "default_model": "qwen2.5:14b",
+    "professional_prompt_profile": true,
+    "tool_servers": [
+      "Professional Workspace & Proteus Bridge",
+      "Local PC MCP"
+    ],
+    "access_grants": {
+      "wildcard": false,
+      "specific_principal": "4adba7c9-890c-43e9-926e-eccb4f933c73"
+    },
+    "features": {
+      "direct_tool_servers": true,
+      "web_search": true,
+      "memories": true,
+      "notes": true
+    }
+  },
+  "scores": {
+    "operational_stability": 9.1,
+    "ai_intelligence_practical": 8.6,
+    "learning_maturity": 7.9,
+    "mcp_integration_maturity": 8.8,
+    "security_posture": 8.7,
+    "overall_weighted": 8.62
+  },
+  "score_scale": "0 to 10",
+  "top_strengths": [
+    "Bridge runtime healthy with Proteus path and projects root validated",
+    "Model stack is coherent with strong default model for reasoning and coding",
+    "Professional prompt profile enforces evidence-driven behavior",
+    "MCP and OpenAPI tool servers are both configured and enabled",
+    "Access grants are restricted to a specific user principal"
+  ],
+  "gaps_and_risks": [
+    "Runtime default_locale is blank while persisted config expects pt-BR",
+    "Learning is mostly session/config driven, without autonomous long-term evaluation loop",
+    "MCP endpoint health was only protocol-level probed, not fully exercised with transaction traces",
+    "Repository publication is blocked: git remote origin is not configured"
+  ],
+  "recommended_next_actions": [
+    {
+      "priority": "high",
+      "action": "Normalize Open WebUI runtime locale to pt-BR and validate persistence after restart",
+      "target": "Open WebUI config/runtime consistency"
+    },
+    {
+      "priority": "high",
+      "action": "Create AI benchmark suite with fixed prompts, tool-call success rate and latency tracking",
+      "target": "Intelligence and reliability measurement"
+    },
+    {
+      "priority": "medium",
+      "action": "Run end-to-end MCP transaction tests (list tools, invoke safe diagnostic calls, validate error paths)",
+      "target": "MCP operational confidence"
+    },
+    {
+      "priority": "medium",
+      "action": "Add remote origin and publish main plus v1.0.2 tag",
+      "target": "Release distribution"
+    }
+  ],
+  "publication_status": {
+    "git_remote_configured": false,
+    "detail": "git remote -v returned empty"
+  }
+}

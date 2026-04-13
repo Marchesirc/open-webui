@@ -1,0 +1,81 @@
+﻿{
+    "timestamp":  "2026-04-12T03:20:29",
+    "active_openwebui_base":  "http://127.0.0.1:8082",
+    "model_used_for_generation":  {
+
+                                  },
+    "locale_runtime":  "",
+    "scores":  {
+                   "availability":  0,
+                   "latency":  10,
+                   "ai_practical":  6,
+                   "mcp_maturity":  5,
+                   "locale_consistency":  4.5,
+                   "overall":  4.45
+               },
+    "checks":  [
+                   {
+                       "name":  "openwebui_config_active",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8082/api/config",
+                       "status_code":  0,
+                       "latency_ms":  14.8,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   },
+                   {
+                       "name":  "openwebui_config_8080",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8080/api/config",
+                       "status_code":  0,
+                       "latency_ms":  1.5,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   },
+                   {
+                       "name":  "bridge_health",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8001/health",
+                       "status_code":  0,
+                       "latency_ms":  0.4,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   },
+                   {
+                       "name":  "bridge_capabilities",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8001/assistant/capabilities",
+                       "status_code":  0,
+                       "latency_ms":  0.3,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   },
+                   {
+                       "name":  "mcp_health",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8765/health",
+                       "status_code":  0,
+                       "latency_ms":  0.4,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   },
+                   {
+                       "name":  "mcp_stream_probe",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8765/mcp",
+                       "status_code":  0,
+                       "latency_ms":  0.3,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   },
+                   {
+                       "name":  "ollama_tags",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:11434/api/tags",
+                       "status_code":  0,
+                       "latency_ms":  0.4,
+                       "ok":  false,
+                       "error":  "Não é possível localizar um parâmetro que coincida com o nome de parâmetro \u0027StatusCodeVariable\u0027."
+                   }
+               ]
+}

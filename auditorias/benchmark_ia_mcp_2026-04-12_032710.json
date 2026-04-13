@@ -1,0 +1,88 @@
+﻿{
+    "timestamp":  "2026-04-12T03:27:12",
+    "active_openwebui_base":  "http://127.0.0.1:8082",
+    "model_used_for_generation":  "qwen2.5:14b",
+    "locale_runtime":  "pt-BR",
+    "scores":  {
+                   "availability":  10,
+                   "latency":  8.94,
+                   "ai_practical":  9.2,
+                   "mcp_maturity":  9,
+                   "locale_consistency":  10,
+                   "overall":  9.44
+               },
+    "checks":  [
+                   {
+                       "name":  "openwebui_config_active",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8082/api/config",
+                       "status_code":  200,
+                       "latency_ms":  58.8,
+                       "ok":  true,
+                       "error":  null
+                   },
+                   {
+                       "name":  "openwebui_config_8080",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8080/api/config",
+                       "status_code":  200,
+                       "latency_ms":  13,
+                       "ok":  true,
+                       "error":  null
+                   },
+                   {
+                       "name":  "bridge_health",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8001/health",
+                       "status_code":  200,
+                       "latency_ms":  33.9,
+                       "ok":  true,
+                       "error":  null
+                   },
+                   {
+                       "name":  "bridge_capabilities",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8001/assistant/capabilities",
+                       "status_code":  200,
+                       "latency_ms":  10.7,
+                       "ok":  true,
+                       "error":  null
+                   },
+                   {
+                       "name":  "mcp_health",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8765/health",
+                       "status_code":  200,
+                       "latency_ms":  8.5,
+                       "ok":  true,
+                       "error":  null
+                   },
+                   {
+                       "name":  "mcp_stream_probe",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:8765/mcp",
+                       "status_code":  406,
+                       "latency_ms":  29.9,
+                       "ok":  true,
+                       "error":  "O servidor remoto retornou um erro: (406) Não Aceitável."
+                   },
+                   {
+                       "name":  "ollama_tags",
+                       "method":  "GET",
+                       "url":  "http://127.0.0.1:11434/api/tags",
+                       "status_code":  200,
+                       "latency_ms":  11,
+                       "ok":  true,
+                       "error":  null
+                   },
+                   {
+                       "name":  "ollama_generate_short",
+                       "method":  "POST",
+                       "url":  "http://127.0.0.1:11434/api/generate",
+                       "status_code":  200,
+                       "latency_ms":  947.9,
+                       "ok":  true,
+                       "error":  null
+                   }
+               ]
+}

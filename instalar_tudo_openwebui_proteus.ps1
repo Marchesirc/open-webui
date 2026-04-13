@@ -3,7 +3,7 @@ param(
     [string]$WorkspaceRoot = '',
     [string]$ProjectsRoot = '',
     [string]$AdminEmail = 'marchesirc@gmail.com',
-    [string]$AdminPassword = '1598753',
+    [string]$AdminPassword = '',
     [string]$AdminName = 'Administrador Local'
 )
 
@@ -79,6 +79,18 @@ $configHelper = Join-Path $bridgeRoot 'configurar_proteus_automacao.ps1'
 $applyScript = Join-Path $bridgeRoot 'apply_openwebui_tool_server.py'
 $ollamaAutostart = Join-Path $bridgeRoot 'setup_ollama_autostart.ps1'
 
+function Convert-SecureStringToPlainText {
+    param([Security.SecureString]$SecureString)
+    if (-not $SecureString) { return '' }
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+    }
+    finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+    }
+}
+
 function Wait-HttpOk {
     param(
         [string]$Url,
@@ -104,6 +116,14 @@ Write-Host '===============================================' -ForegroundColor Cy
 Write-Host "Workspace detectado: $WorkspaceRoot" -ForegroundColor DarkCyan
 Write-Host "Open WebUI detectado: $OpenWebUIRepo" -ForegroundColor DarkCyan
 Write-Host "Projetos do Proteus: $ProjectsRoot" -ForegroundColor DarkCyan
+
+if ([string]::IsNullOrWhiteSpace($AdminPassword)) {
+    $securePassword = Read-Host -AsSecureString 'Defina a senha do admin local do OpenWebUI'
+    $AdminPassword = Convert-SecureStringToPlainText -SecureString $securePassword
+    if ([string]::IsNullOrWhiteSpace($AdminPassword)) {
+        throw 'Senha do admin nao pode ser vazia.'
+    }
+}
 
 if (-not (Test-Path $backendDir)) {
     throw "Backend do Open WebUI não encontrado em: $backendDir"
@@ -197,5 +217,5 @@ Write-Host 'Proteus Bridge: http://127.0.0.1:8001/docs' -ForegroundColor Green
 Write-Host 'Ollama autostart: habilitado para o login do Windows' -ForegroundColor Green
 Write-Host 'Perfil padrão restaurado: Modo Copilot PT-BR + prompt profissional persistente' -ForegroundColor Green
 Write-Host "Login local: $AdminEmail" -ForegroundColor Green
-Write-Host "Senha local: $AdminPassword" -ForegroundColor Green
+Write-Host 'Senha local: definida pelo operador (nao exibida por seguranca).' -ForegroundColor Green
 Write-Host "Pasta dos projetos do Proteus: $ProjectsRoot" -ForegroundColor Green
