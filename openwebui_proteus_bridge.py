@@ -841,6 +841,17 @@ class AssistantPhase30RcaClusterRequest(BaseModel):
     limit: int = Field(default=5000, ge=10, le=50000)
 
 
+class AssistantPhase31RunbookScoreRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=60, ge=1, le=365)
+    top_n: int = Field(default=10, ge=1, le=100)
+    min_executions: int = Field(default=1, ge=1, le=1000)
+    dry_run: bool = Field(default=False)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3135,6 +3146,7 @@ _REPORTS_ROUTING_FILE = _REPORTS_DIR / "routing_rules.json"
 _REPORTS_REMEDIATIONS_FILE = _REPORTS_DIR / "remediation_runs.jsonl"
 _REPORTS_ESCALATIONS_FILE  = _REPORTS_DIR / "sla_escalation_runs.jsonl"
 _REPORTS_RCA_FILE          = _REPORTS_DIR / "rca_clusters.jsonl"
+_REPORTS_RUNBOOK_SCORE_FILE = _REPORTS_DIR / "runbook_scores.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -6574,6 +6586,246 @@ def _phase30_rca_history(days: int = 30, limit: int = 100) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 31 — Runbook Score + Qualidade Operacional
+# ---------------------------------------------------------------------------
+
+def _load_runbook_scores() -> list[dict[str, Any]]:
+    if not _REPORTS_RUNBOOK_SCORE_FILE.exists():
+        return []
+    scores: list[dict[str, Any]] = []
+    try:
+        with open(_REPORTS_RUNBOOK_SCORE_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        scores.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        return scores
+    except OSError as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_RUNBOOK_SCORE_FILE}: {exc}") from exc
+
+
+def _save_runbook_score(entry: dict[str, Any]) -> None:
+    _REPORTS_RUNBOOK_SCORE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_RUNBOOK_SCORE_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        raise RuntimeError(f"Falha ao salvar runbook score em {_REPORTS_RUNBOOK_SCORE_FILE}: {exc}") from exc
+
+
+def _phase31_scope_ok_playbook(
+    pb: dict[str, Any],
+    environment: Optional[str],
+    tenant_id: Optional[str],
+    project_scope: Optional[str],
+) -> bool:
+    # Phase 22 playbook runs store environment/tenant_id at top level
+    if environment:
+        pb_env = str(pb.get("environment") or "").strip().lower()
+        if pb_env and pb_env != environment.strip().lower():
+            return False
+    if tenant_id:
+        pb_tenant = str(pb.get("tenant_id") or "").strip().lower()
+        if pb_tenant and pb_tenant != tenant_id.strip().lower():
+            return False
+    return True
+
+
+def _phase31_quality_grade(score: float) -> str:
+    """Map composite score (0–100) to operational quality grade."""
+    if score >= 85:
+        return "A"
+    elif score >= 70:
+        return "B"
+    elif score >= 55:
+        return "C"
+    elif score >= 40:
+        return "D"
+    else:
+        return "F"
+
+
+def _phase31_compute_runbook_scores(request: AssistantPhase31RunbookScoreRequest) -> dict[str, Any]:
+    """
+    Score runbook quality by grouping Phase 22 preventive playbook executions
+    by forecast_tier and cross-referencing Phase 28 remediation runs.
+
+    Metrics per tier (runbook type):
+      - execution_count       : number of playbook runs for this tier
+      - real_execution_rate   : fraction where dry_run=False (truly executed)
+      - avg_steps             : mean steps_count per run
+      - avg_forecast_score    : mean forecast_score (risk signal at trigger time)
+      - remediation_coverage  : fraction of Phase 28 remediations for same tier
+      - rework_rate           : fraction of repeated triggers in same environment
+      - composite_score       : 0-100 weighted aggregate
+      - grade                 : A/B/C/D/F
+    """
+    from collections import Counter, defaultdict
+    playbooks = _load_playbooks()
+    remediations = _load_remediation_runs()
+    cutoff = datetime.now() - timedelta(days=int(request.days))
+
+    # Filter playbook runs by cutoff and scope
+    pb_in_window: list[dict[str, Any]] = []
+    for pb in playbooks:
+        ts = str(pb.get("executed_at") or "")
+        try:
+            if ts and datetime.fromisoformat(ts[:19]) < cutoff:
+                continue
+        except ValueError:
+            pass
+        if not _phase31_scope_ok_playbook(pb, request.environment, request.tenant_id, request.project_scope):
+            continue
+        pb_in_window.append(pb)
+
+    # Filter remediation runs by cutoff
+    rem_in_window: list[dict[str, Any]] = []
+    for rem in remediations:
+        ts = str(rem.get("created_at") or rem.get("ran_at") or "")
+        try:
+            if ts and datetime.fromisoformat(ts[:19]) < cutoff:
+                continue
+        except ValueError:
+            pass
+        rem_in_window.append(rem)
+
+    # Group playbook runs by forecast_tier
+    tier_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for pb in pb_in_window[: int(request.limit)]:
+        tier = str(pb.get("forecast_tier") or "unknown").strip().lower()
+        tier_groups[tier].append(pb)
+
+    # Group remediations by risk_tier
+    rem_by_tier: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for rem in rem_in_window:
+        tier = str(rem.get("risk_tier") or "unknown").strip().lower()
+        rem_by_tier[tier].append(rem)
+
+    pb_scores: list[dict[str, Any]] = []
+
+    for tier, runs in tier_groups.items():
+        exec_count = len(runs)
+        if exec_count < int(request.min_executions):
+            continue
+
+        # real_execution_rate: not dry_run
+        real = sum(1 for r in runs if not r.get("dry_run", True))
+        real_execution_rate = round(real / max(exec_count, 1), 4)
+
+        # avg_steps
+        steps = [int(r.get("steps_count") or len(r.get("steps") or [])) for r in runs]
+        avg_steps = round(sum(steps) / max(len(steps), 1), 2)
+
+        # avg_forecast_score (0-1 float from Phase 22)
+        fscores = [float(r.get("forecast_score") or 0.0) for r in runs]
+        avg_forecast_score = round(sum(fscores) / max(len(fscores), 1), 4)
+
+        # rework_rate: same env triggered more than once in window
+        env_counts = Counter(str(r.get("environment") or "") for r in runs)
+        repeated_envs = sum(1 for cnt in env_counts.values() if cnt > 1)
+        rework_rate = round(repeated_envs / max(len(env_counts), 1), 4)
+
+        # remediation_coverage: executed remediations for same tier
+        rem_count = len(rem_by_tier.get(tier, []))
+        rem_success = sum(
+            1 for r in rem_by_tier.get(tier, [])
+            if str(r.get("status") or "").lower() == "executed"
+        )
+        remediation_coverage = round(rem_success / max(rem_count, exec_count, 1), 4)
+
+        # composite_score 0-100
+        composite = round(
+            (real_execution_rate * 35.0)
+            + (min(avg_steps, 10.0) / 10.0 * 20.0)
+            + (min(avg_forecast_score, 1.0) * 15.0)
+            + ((1.0 - rework_rate) * 20.0)
+            + (remediation_coverage * 10.0),
+            2,
+        )
+
+        pb_scores.append({
+            "runbook_tier": tier,
+            "execution_count": exec_count,
+            "real_execution_rate": real_execution_rate,
+            "avg_steps": avg_steps,
+            "avg_forecast_score": avg_forecast_score,
+            "rework_rate": rework_rate,
+            "remediation_coverage": remediation_coverage,
+            "composite_score": composite,
+            "grade": _phase31_quality_grade(composite),
+        })
+
+    pb_scores.sort(key=lambda x: -x["composite_score"])
+    top = pb_scores[: int(request.top_n)]
+
+    by_grade: dict[str, int] = {}
+    for s in pb_scores:
+        g = s["grade"]
+        by_grade[g] = by_grade.get(g, 0) + 1
+
+    avg_composite = round(
+        sum(s["composite_score"] for s in pb_scores) / max(len(pb_scores), 1), 2
+    ) if pb_scores else 0.0
+
+    run_id = f"rbscore-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:22]}"
+    entry: dict[str, Any] = {
+        "run_id": run_id,
+        "scored_at": datetime.now().isoformat(timespec="seconds"),
+        "dry_run": bool(request.dry_run),
+        "total_playbooks_evaluated": len(pb_scores),
+        "avg_composite_score": avg_composite,
+        "by_grade": by_grade,
+        "top_n": int(request.top_n),
+        "scores": pb_scores,
+    }
+
+    if not request.dry_run:
+        _save_runbook_score(entry)
+
+    return {
+        "phase": "phase-31-runbook-score",
+        "run_id": run_id,
+        "dry_run": bool(request.dry_run),
+        "total_playbooks_evaluated": len(pb_scores),
+        "avg_composite_score": avg_composite,
+        "by_grade": by_grade,
+        "top_runbooks": top,
+    }
+
+
+def _phase31_runbook_score_history(days: int = 60, limit: int = 50) -> dict[str, Any]:
+    entries = _load_runbook_scores()
+    cutoff = datetime.now() - timedelta(days=int(days))
+    filtered: list[dict[str, Any]] = []
+    for entry in entries:
+        ts = str(entry.get("scored_at") or "")
+        try:
+            if ts and datetime.fromisoformat(ts[:19]) >= cutoff:
+                filtered.append(entry)
+        except ValueError:
+            filtered.append(entry)
+    filtered = sorted(filtered, key=lambda e: str(e.get("scored_at") or ""), reverse=True)[: int(limit)]
+    by_grade_agg: dict[str, int] = {}
+    for e in filtered:
+        for g, cnt in (e.get("by_grade") or {}).items():
+            by_grade_agg[g] = by_grade_agg.get(g, 0) + int(cnt)
+    avg_scores = [e.get("avg_composite_score", 0.0) for e in filtered if e.get("avg_composite_score") is not None]
+    overall_avg = round(sum(avg_scores) / max(len(avg_scores), 1), 2) if avg_scores else 0.0
+    return {
+        "phase": "phase-31-runbook-score-history",
+        "days": int(days),
+        "limit": int(limit),
+        "total_runs": len(filtered),
+        "overall_avg_composite": overall_avg,
+        "by_grade": by_grade_agg,
+        "runs": filtered,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -8610,6 +8862,19 @@ def assistant_incidents_rca_history(
     return {"ok": True, "result": _phase30_rca_history(days=days, limit=limit)}
 
 
+@app.post("/assistant/runbooks/score")
+def assistant_runbooks_score(request: AssistantPhase31RunbookScoreRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase31_compute_runbook_scores(request)}
+
+
+@app.get("/assistant/runbooks/score/history")
+def assistant_runbooks_score_history(
+    days: int = Query(default=60, ge=1, le=365),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase31_runbook_score_history(days=days, limit=limit)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -8768,6 +9033,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase28_auto_remediation": True,
             "assistant_phase29_sla_temporal_escalation": True,
             "assistant_phase30_rca_clustering": True,
+            "assistant_phase31_runbook_quality_score": True,
         },
         "projects_root": str(project_root()),
     }

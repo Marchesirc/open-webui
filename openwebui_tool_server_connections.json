@@ -82,6 +82,8 @@
           "assistant_incidents_escalation_history",
           "assistant_incidents_rca_cluster",
           "assistant_incidents_rca_history",
+          "assistant_runbooks_score",
+          "assistant_runbooks_score_history",
           "health",
           "workspace_list",
           "workspace_search",

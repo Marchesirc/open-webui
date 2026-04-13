@@ -133,6 +133,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_escalation_history",
     "assistant_incidents_rca_cluster",
     "assistant_incidents_rca_history",
+    "assistant_runbooks_score",
+    "assistant_runbooks_score_history",
     "health",
     "workspace_list",
     "workspace_search",
@@ -549,6 +551,12 @@ FIXED_PROMPTS = [
         "name": "Fase 30 RCA Assistido com Clusterizacao de Causa Raiz",
         "tags": ["fase30", "rca", "clusterizacao", "causa-raiz", "incidentes"],
         "content": "Atue no modo Fase 30. Execute analise de causa raiz assistida com clusterizacao de incidentes por fingerprint de causa. Agrupe incidentes recorrentes por categoria, calcule taxa de recorrencia e confidence score, e persista os clusters para auditoria e acompanhamento de tendencias."
+    },
+    {
+        "command": "fase31-runbook-score",
+        "name": "Fase 31 Runbook Score e Qualidade Operacional",
+        "tags": ["fase31", "runbook", "score", "qualidade", "operacional", "mttr"],
+        "content": "Atue no modo Fase 31. Avalie a qualidade operacional de cada playbook calculando success_rate, rework_rate, avg_actions e composite_score. Classifique playbooks por grade (A a F), identifique os top N com maior impacto em MTTR e gere historico auditavel de scores para acompanhamento de tendencias de qualidade."
     }
 ]
 
