@@ -131,6 +131,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_incidents_remediation_history",
     "assistant_incidents_escalation_run",
     "assistant_incidents_escalation_history",
+    "assistant_incidents_rca_cluster",
+    "assistant_incidents_rca_history",
     "health",
     "workspace_list",
     "workspace_search",
@@ -541,6 +543,12 @@ FIXED_PROMPTS = [
         "name": "Fase 29 Escalonamento Temporal de SLA",
         "tags": ["fase29", "sla", "escalonamento", "t-15", "t-5"],
         "content": "Atue no modo Fase 29. Execute governanca de SLA com escalonamento temporal por estagios T-15, T-5 e breached, aplicando prioridade progressiva, bloqueio por aprovacao opcional e historico auditavel de escalacoes."
+    },
+    {
+        "command": "fase30-rca-clusterizacao",
+        "name": "Fase 30 RCA Assistido com Clusterizacao de Causa Raiz",
+        "tags": ["fase30", "rca", "clusterizacao", "causa-raiz", "incidentes"],
+        "content": "Atue no modo Fase 30. Execute analise de causa raiz assistida com clusterizacao de incidentes por fingerprint de causa. Agrupe incidentes recorrentes por categoria, calcule taxa de recorrencia e confidence score, e persista os clusters para auditoria e acompanhamento de tendencias."
     }
 ]
 

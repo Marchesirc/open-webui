@@ -829,6 +829,18 @@ class AssistantPhase29EscalationRunRequest(BaseModel):
     limit: int = Field(default=5000, ge=10, le=50000)
 
 
+class AssistantPhase30RcaClusterRequest(BaseModel):
+    environment: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    tenant_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_scope: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    days: int = Field(default=30, ge=1, le=365)
+    min_cluster_size: int = Field(default=2, ge=2, le=100)
+    approval_required: bool = Field(default=True)
+    approved: bool = Field(default=False)
+    dry_run: bool = Field(default=False)
+    limit: int = Field(default=5000, ge=10, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -3121,7 +3133,8 @@ _REPORTS_PLAYBOOKS_FILE = _REPORTS_DIR / "preventive_playbooks.jsonl"
 _REPORTS_POSTMORTEMS_FILE = _REPORTS_DIR / "postmortems.jsonl"
 _REPORTS_ROUTING_FILE = _REPORTS_DIR / "routing_rules.json"
 _REPORTS_REMEDIATIONS_FILE = _REPORTS_DIR / "remediation_runs.jsonl"
-_REPORTS_ESCALATIONS_FILE = _REPORTS_DIR / "sla_escalation_runs.jsonl"
+_REPORTS_ESCALATIONS_FILE  = _REPORTS_DIR / "sla_escalation_runs.jsonl"
+_REPORTS_RCA_FILE          = _REPORTS_DIR / "rca_clusters.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -6347,6 +6360,220 @@ def _phase29_escalation_history(days: int = 30, limit: int = 200) -> dict[str, A
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 30 — RCA Assistido + Clusterização de Causa Raiz
+# ---------------------------------------------------------------------------
+
+_PHASE30_CAUSE_MAP: dict[str, str] = {
+    "connectivity": "Falha de conectividade de rede ou DNS",
+    "cpu": "Sobrecarga de CPU — consumo excessivo de processamento",
+    "memory": "Pressão de memória — OOM ou leak identificado",
+    "disk": "Esgotamento de espaço em disco",
+    "latency": "Degradação de latência de serviço ou dependência",
+    "auth": "Falha de autenticação, permissão ou token expirado",
+    "deploy": "Regressão pós-deploy — artefato ou configuração defeituosa",
+    "timeout": "Timeout de serviço ou dependência externa",
+    "sla": "Violação de SLA crônica — processo operacional deficiente",
+    "pipeline": "Falha em pipeline CI/CD ou automação",
+    "database": "Falha de banco de dados — conexão, query ou lock",
+    "config": "Erro de configuração — parâmetro inválido ou ausente",
+    "unknown": "Causa raiz indeterminada — investigação manual necessária",
+}
+
+
+def _phase30_cause_fingerprint(incident: dict[str, Any]) -> str:
+    """Build a normalized cause fingerprint from incident attributes."""
+    scope = dict(incident.get("scope") or {})
+    env = str(scope.get("environment") or "unknown").strip().lower()
+    tenant = str(scope.get("tenant_id") or "unknown").strip().lower()
+    tier = _phase27_incident_tier(incident)
+    raw_type = str(
+        incident.get("check_type") or incident.get("type") or incident.get("category") or "unknown"
+    ).strip().lower()
+    cause = "unknown"
+    for key in _PHASE30_CAUSE_MAP:
+        if key != "unknown" and key in raw_type:
+            cause = key
+            break
+    return f"{env}|{tenant}|{tier}|{cause}"
+
+
+def _phase30_confidence(cluster_size: int, total_in_scope: int) -> float:
+    """Compute confidence score (0.0–1.0) based on cluster dominance."""
+    if total_in_scope == 0:
+        return 0.0
+    ratio = cluster_size / total_in_scope
+    if ratio >= 0.5:
+        return round(min(0.95, 0.6 + ratio * 0.7), 3)
+    elif ratio >= 0.2:
+        return round(0.4 + ratio * 0.8, 3)
+    else:
+        return round(max(0.1, ratio * 2.0), 3)
+
+
+def _load_rca_runs() -> list[dict[str, Any]]:
+    if not _REPORTS_RCA_FILE.exists():
+        return []
+    runs: list[dict[str, Any]] = []
+    try:
+        with open(_REPORTS_RCA_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        runs.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        return runs
+    except OSError as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_RCA_FILE}: {exc}") from exc
+
+
+def _save_rca_run(entry: dict[str, Any]) -> None:
+    _REPORTS_RCA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_RCA_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        raise RuntimeError(f"Falha ao salvar RCA run em {_REPORTS_RCA_FILE}: {exc}") from exc
+
+
+def _phase30_run_rca_clustering(request: AssistantPhase30RcaClusterRequest) -> dict[str, Any]:
+    if request.approval_required and not request.approved:
+        return {
+            "phase": "phase-30-rca-clustering",
+            "blocked": True,
+            "approval_required": True,
+            "message": "Execução bloqueada: defina approved=true para prosseguir com a clusterização de causa raiz.",
+        }
+
+    incidents = _load_incidents()
+    now = datetime.now()
+    cutoff_dt = now - timedelta(days=int(request.days))
+
+    def _scope_ok(inc: dict[str, Any]) -> bool:
+        scope = dict(inc.get("scope") or {})
+        if request.environment:
+            if str(scope.get("environment") or "").strip().lower() != request.environment.strip().lower():
+                return False
+        if request.tenant_id:
+            if str(scope.get("tenant_id") or "").strip().lower() != request.tenant_id.strip().lower():
+                return False
+        if request.project_scope:
+            if str(scope.get("project_scope") or "").strip().lower() != request.project_scope.strip().lower():
+                return False
+        return True
+
+    def _date_ok(inc: dict[str, Any]) -> bool:
+        ts = str(inc.get("created_at") or inc.get("opened_at") or inc.get("detected_at") or "")
+        if not ts:
+            return True
+        try:
+            return datetime.fromisoformat(ts[:19]) >= cutoff_dt
+        except ValueError:
+            return True
+
+    scoped = [i for i in incidents if _scope_ok(i) and _date_ok(i)]
+    scoped = scoped[: int(request.limit)]
+    total_scoped = len(scoped)
+
+    clusters: dict[str, list[dict[str, Any]]] = {}
+    for inc in scoped:
+        fp = _phase30_cause_fingerprint(inc)
+        clusters.setdefault(fp, []).append(inc)
+
+    cluster_list: list[dict[str, Any]] = []
+    for fp, members in sorted(clusters.items(), key=lambda kv: -len(kv[1])):
+        size = len(members)
+        if size < int(request.min_cluster_size):
+            continue
+        parts = fp.split("|")
+        env_key = parts[0] if len(parts) > 0 else "unknown"
+        tenant_key = parts[1] if len(parts) > 1 else "unknown"
+        tier_key = parts[2] if len(parts) > 2 else "unknown"
+        cause_key = parts[3] if len(parts) > 3 else "unknown"
+        open_count = sum(1 for m in members if str(m.get("status") or "").lower() == "open")
+        recurrence_rate = round(size / max(total_scoped, 1), 4)
+        cluster_list.append({
+            "fingerprint": fp,
+            "environment": env_key,
+            "tenant_id": tenant_key,
+            "severity_tier": tier_key,
+            "cause_category": cause_key,
+            "probable_root_cause": _PHASE30_CAUSE_MAP.get(cause_key, _PHASE30_CAUSE_MAP["unknown"]),
+            "cluster_size": size,
+            "open_incidents": open_count,
+            "recurrence_rate": recurrence_rate,
+            "confidence": _phase30_confidence(size, total_scoped),
+            "incident_ids": [str(m.get("incident_id") or "") for m in members],
+        })
+
+    by_cause: dict[str, int] = {}
+    for cl in cluster_list:
+        key = cl["cause_category"]
+        by_cause[key] = by_cause.get(key, 0) + cl["cluster_size"]
+
+    run_id = f"rca-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:20]}"
+    entry: dict[str, Any] = {
+        "run_id": run_id,
+        "ran_at": datetime.now().isoformat(timespec="seconds"),
+        "dry_run": bool(request.dry_run),
+        "total_incidents_scoped": total_scoped,
+        "total_clusters_found": len(cluster_list),
+        "by_cause": by_cause,
+        "clusters": cluster_list,
+        "filters": {
+            "environment": request.environment,
+            "tenant_id": request.tenant_id,
+            "project_scope": request.project_scope,
+            "days": int(request.days),
+            "min_cluster_size": int(request.min_cluster_size),
+        },
+    }
+
+    if not request.dry_run:
+        _save_rca_run(entry)
+
+    return {
+        "phase": "phase-30-rca-clustering",
+        "blocked": False,
+        "dry_run": bool(request.dry_run),
+        "run_id": run_id,
+        "total_incidents_scoped": total_scoped,
+        "total_clusters_found": len(cluster_list),
+        "by_cause": by_cause,
+        "clusters": cluster_list,
+    }
+
+
+def _phase30_rca_history(days: int = 30, limit: int = 100) -> dict[str, Any]:
+    runs = _load_rca_runs()
+    cutoff = datetime.now() - timedelta(days=int(days))
+    filtered: list[dict[str, Any]] = []
+    for run in runs:
+        ts = str(run.get("ran_at") or "")
+        try:
+            if ts and datetime.fromisoformat(ts[:19]) >= cutoff:
+                filtered.append(run)
+        except ValueError:
+            filtered.append(run)
+    filtered = sorted(filtered, key=lambda r: str(r.get("ran_at") or ""), reverse=True)[: int(limit)]
+    total_clusters = sum(r.get("total_clusters_found", 0) for r in filtered)
+    by_cause_agg: dict[str, int] = {}
+    for r in filtered:
+        for cause, cnt in (r.get("by_cause") or {}).items():
+            by_cause_agg[cause] = by_cause_agg.get(cause, 0) + int(cnt)
+    return {
+        "phase": "phase-30-rca-history",
+        "days": int(days),
+        "limit": int(limit),
+        "total_runs": len(filtered),
+        "total_clusters": total_clusters,
+        "by_cause": by_cause_agg,
+        "runs": filtered,
+    }
+
+
 def _phase17_close_open_incidents_for_scope(
     scope: dict[str, str],
     close_note: Optional[str] = None,
@@ -8370,6 +8597,19 @@ def assistant_incidents_escalation_history(
     return {"ok": True, "result": _phase29_escalation_history(days=days, limit=limit)}
 
 
+@app.post("/assistant/incidents/rca/cluster")
+def assistant_incidents_rca_cluster(request: AssistantPhase30RcaClusterRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase30_run_rca_clustering(request)}
+
+
+@app.get("/assistant/incidents/rca/history")
+def assistant_incidents_rca_history(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict[str, Any]:
+    return {"ok": True, "result": _phase30_rca_history(days=days, limit=limit)}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -8527,6 +8767,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase27_sla_breach_predictor": True,
             "assistant_phase28_auto_remediation": True,
             "assistant_phase29_sla_temporal_escalation": True,
+            "assistant_phase30_rca_clustering": True,
         },
         "projects_root": str(project_root()),
     }
