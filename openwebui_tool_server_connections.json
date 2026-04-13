@@ -31,6 +31,8 @@
           "assistant_quality_gate",
           "assistant_memory_add",
           "assistant_memory_search",
+          "assistant_orchestrate",
+          "assistant_checkpoint_decision",
           "health",
           "workspace_list",
           "workspace_search",

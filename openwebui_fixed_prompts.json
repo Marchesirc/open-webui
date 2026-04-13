@@ -88,5 +88,15 @@
       "contexto"
     ],
     "content": "Atue no modo Fase 2. Antes de responder, consulte memoria semantica local, reutilize padroes que funcionaram e indique explicitamente quais memorias sustentam a recomendacao."
+  },
+  {
+    "command": "fase3-orquestracao",
+    "name": "Fase 3 Orquestracao com Checkpoint",
+    "tags": [
+      "fase3",
+      "orquestracao",
+      "checkpoint"
+    ],
+    "content": "Atue no modo Fase 3. Orquestre planner executor verifier, valide qualidade da resposta e abra checkpoint de aprovacao para decisoes sensiveis, informando claramente risco, confianca e proxima acao."
   }
 ]

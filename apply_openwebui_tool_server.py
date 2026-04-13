@@ -80,6 +80,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_quality_gate",
     "assistant_memory_add",
     "assistant_memory_search",
+    "assistant_orchestrate",
+    "assistant_checkpoint_decision",
     "health",
     "workspace_list",
     "workspace_search",
@@ -195,6 +197,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 2", "memoria semantica local"],
         "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
+    },
+    {
+        "title": ["Fase 3", "orquestracao e checkpoint"],
+        "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
     }
 ]
 
@@ -252,6 +258,12 @@ FIXED_PROMPTS = [
         "name": "Fase 2 Memoria Semantica",
         "tags": ["fase2", "memoria", "contexto"],
         "content": "Atue no modo Fase 2. Antes de responder, consulte memoria semantica local, reutilize padroes que funcionaram e indique explicitamente quais memorias sustentam a recomendacao."
+    },
+    {
+        "command": "fase3-orquestracao",
+        "name": "Fase 3 Orquestracao com Checkpoint",
+        "tags": ["fase3", "orquestracao", "checkpoint"],
+        "content": "Atue no modo Fase 3. Orquestre planner executor verifier, valide qualidade da resposta e abra checkpoint de aprovacao para decisoes sensiveis, informando claramente risco, confianca e proxima acao."
     }
 ]
 

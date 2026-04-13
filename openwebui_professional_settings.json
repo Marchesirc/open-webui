@@ -32,6 +32,8 @@
             "assistant_quality_gate",
             "assistant_memory_add",
             "assistant_memory_search",
+            "assistant_orchestrate",
+            "assistant_checkpoint_decision",
             "health",
             "workspace_list",
             "workspace_search",
@@ -150,6 +152,13 @@
         "memoria semantica local"
       ],
       "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
+    },
+    {
+      "title": [
+        "Fase 3",
+        "orquestracao e checkpoint"
+      ],
+      "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -217,6 +226,13 @@
           "memoria semantica local"
         ],
         "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
+      },
+      {
+        "title": [
+          "Fase 3",
+          "orquestracao e checkpoint"
+        ],
+        "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
       }
     ],
     "default_locale": "pt-BR",

@@ -494,6 +494,22 @@ class AssistantMemorySearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
 
 
+class AssistantOrchestrateRequest(BaseModel):
+    objective: str
+    task_type: str = Field(default="generic")
+    auto_execute: bool = False
+    require_approval: bool = True
+    workspace_path: str = "."
+    web_query: Optional[str] = None
+    max_results: int = Field(default=5, ge=1, le=20)
+
+
+class AssistantCheckpointDecisionRequest(BaseModel):
+    checkpoint_id: str
+    decision: str = Field(description="approve|reject")
+    note: str = ""
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2774,6 +2790,7 @@ _TASK_CONTRACTS: dict[str, dict[str, Any]] = {
 
 _MEMORY_DIR = BASE_DIR / "assistant_memory"
 _MEMORY_FILE = _MEMORY_DIR / "entries.jsonl"
+_CHECKPOINT_FILE = _MEMORY_DIR / "checkpoints.jsonl"
 
 
 def _tokenize_text(text: str) -> set[str]:
@@ -2795,6 +2812,8 @@ def _ensure_memory_storage() -> None:
     _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     if not _MEMORY_FILE.exists():
         _MEMORY_FILE.write_text("", encoding="utf-8")
+    if not _CHECKPOINT_FILE.exists():
+        _CHECKPOINT_FILE.write_text("", encoding="utf-8")
 
 
 def _append_memory_entry(entry: dict[str, Any]) -> None:
@@ -2818,6 +2837,71 @@ def _load_memory_entries() -> list[dict[str, Any]]:
             except Exception:
                 continue
     return entries
+
+
+def _append_checkpoint(entry: dict[str, Any]) -> None:
+    _ensure_memory_storage()
+    with _CHECKPOINT_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _load_checkpoints() -> list[dict[str, Any]]:
+    _ensure_memory_storage()
+    checkpoints: list[dict[str, Any]] = []
+    with _CHECKPOINT_FILE.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    checkpoints.append(payload)
+            except Exception:
+                continue
+    return checkpoints
+
+
+def _find_checkpoint(checkpoint_id: str) -> Optional[dict[str, Any]]:
+    for checkpoint in reversed(_load_checkpoints()):
+        if checkpoint.get("checkpoint_id") == checkpoint_id:
+            return checkpoint
+    return None
+
+
+def _record_checkpoint_decision(checkpoint_id: str, decision: str, note: str) -> dict[str, Any]:
+    checkpoint = _find_checkpoint(checkpoint_id)
+    if not checkpoint:
+        raise HTTPException(status_code=404, detail=f"checkpoint nao encontrado: {checkpoint_id}")
+
+    decision_entry = {
+        "checkpoint_id": checkpoint_id,
+        "decision": decision,
+        "note": note,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "objective": checkpoint.get("objective"),
+        "task_type": checkpoint.get("task_type"),
+        "status": "approved" if decision == "approve" else "rejected",
+    }
+    _append_checkpoint(decision_entry)
+    return decision_entry
+
+
+def _build_phase3_roles(task_type: str, objective: str) -> dict[str, Any]:
+    role_planner = {
+        "role": "planner",
+        "responsibility": "Definir plano por etapas e riscos",
+        "steps": _build_assistant_plan(task_type, objective),
+    }
+    role_executor = {
+        "role": "executor",
+        "responsibility": "Executar checagens seguras e coletar evidencias",
+    }
+    role_verifier = {
+        "role": "verifier",
+        "responsibility": "Validar contrato, qualidade e confianca",
+    }
+    return {"planner": role_planner, "executor": role_executor, "verifier": role_verifier}
 
 
 def _score_memory_entry(query_tokens: set[str], entry: dict[str, Any]) -> float:
@@ -3347,6 +3431,86 @@ def assistant_memory_search(request: AssistantMemorySearchRequest) -> dict[str, 
     )
 
 
+@app.post("/assistant/orchestrate")
+def assistant_orchestrate(request: AssistantOrchestrateRequest) -> dict[str, Any]:
+    objective = (request.objective or "").strip()
+    if not objective:
+        raise HTTPException(status_code=400, detail="objective obrigatorio")
+
+    task_type = _normalize_task_type(request.task_type)
+    roles = _build_phase3_roles(task_type, objective)
+
+    pipeline = assistant_pipeline(
+        AssistantPipelineRequest(
+            task_type=task_type,
+            objective=objective,
+            execute=bool(request.auto_execute),
+            workspace_path=request.workspace_path,
+            web_query=request.web_query,
+            max_results=request.max_results,
+        )
+    )
+
+    quality = assistant_quality_gate(
+        AssistantQualityGateRequest(
+            task_type=task_type,
+            response_text=(pipeline.get("executor", {}).get("summary") or objective),
+            evidence_items=[item.get("check", "") for item in (pipeline.get("executor", {}).get("outputs", [])) if item.get("ok")],
+            tool_calls=[item.get("check", "") for item in (pipeline.get("executor", {}).get("outputs", []))],
+            has_root_cause=True,
+            has_validation=bool(pipeline.get("verifier", {}).get("pass")),
+        )
+    )
+
+    needs_approval = bool(request.require_approval) or quality.get("confidence", {}).get("score", 0) < 75
+    checkpoint_id: Optional[str] = None
+    checkpoint_status = "not-required"
+    if needs_approval:
+        checkpoint_id = f"cp_{int(time.time() * 1000)}"
+        checkpoint_status = "pending"
+        _append_checkpoint(
+            {
+                "checkpoint_id": checkpoint_id,
+                "status": checkpoint_status,
+                "objective": objective,
+                "task_type": task_type,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "quality": quality,
+                "planner_steps": roles["planner"]["steps"],
+            }
+        )
+
+    return {
+        "ok": True,
+        "phase": "phase-3-orchestration",
+        "task_type": task_type,
+        "objective": objective,
+        "roles": roles,
+        "pipeline": pipeline,
+        "quality_gate": quality,
+        "checkpoint": {
+            "required": needs_approval,
+            "status": checkpoint_status,
+            "checkpoint_id": checkpoint_id,
+        },
+    }
+
+
+@app.post("/assistant/checkpoint/decision")
+def assistant_checkpoint_decision(request: AssistantCheckpointDecisionRequest) -> dict[str, Any]:
+    checkpoint_id = (request.checkpoint_id or "").strip()
+    if not checkpoint_id:
+        raise HTTPException(status_code=400, detail="checkpoint_id obrigatorio")
+
+    decision = (request.decision or "").strip().lower()
+    if decision not in {"approve", "reject"}:
+        raise HTTPException(status_code=400, detail="decision invalida: use approve ou reject")
+
+    note = (request.note or "").strip()
+    entry = _record_checkpoint_decision(checkpoint_id=checkpoint_id, decision=decision, note=note)
+    return {"ok": True, "checkpoint": entry}
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -3368,6 +3532,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase1_pipeline": True,
             "assistant_quality_gate": True,
             "assistant_phase2_memory": True,
+            "assistant_phase3_orchestration": True,
+            "assistant_phase3_checkpoints": True,
         },
         "projects_root": str(project_root()),
     }

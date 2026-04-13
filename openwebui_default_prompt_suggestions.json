@@ -61,5 +61,12 @@
       "memoria semantica local"
     ],
     "content": "Antes de responder tarefas tecnicas, recupere memorias locais relevantes, priorize conhecimento interno validado e use a web apenas para complementar lacunas com fontes confiaveis."
+  },
+  {
+    "title": [
+      "Fase 3",
+      "orquestracao e checkpoint"
+    ],
+    "content": "Execute a Fase 3: orquestre planner executor verifier, rode pipeline com qualidade minima e abra checkpoint de aprovacao quando houver risco, baixa confianca ou impacto alto."
   }
 ]
