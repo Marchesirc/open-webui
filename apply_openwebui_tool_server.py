@@ -102,6 +102,9 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_executive_report_schedule",
     "assistant_executive_report_schedule_list",
     "assistant_executive_report_schedule_run",
+    "assistant_audit_log",
+    "assistant_audit_logs",
+    "assistant_audit_summary",
     "health",
     "workspace_list",
     "workspace_search",
@@ -261,6 +264,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 13", "politica por escopo"],
         "content": "Execute a Fase 13: configure politica de conformidade por tenant, projeto e ambiente, valide snapshots e agendas contra os limites e reporte pass ou fail com recomendacoes objetivas."
+    },
+    {
+        "title": ["Fase 14", "auditoria e conformidade"],
+        "content": "Execute a Fase 14: registre trilha completa de operacoes de politicas, liste logs filtrados por operacao, status, tenant e ambiente, e exponga sumario de conformidade para rastreabilidade regulatoria."
     }
 ]
 
@@ -384,6 +391,12 @@ FIXED_PROMPTS = [
         "name": "Fase 13 Politica de Conformidade por Escopo",
         "tags": ["fase13", "politica", "tenant"],
         "content": "Atue no modo Fase 13. Defina politica por tenant, projeto e ambiente, avalie conformidade do dashboard scoped (snapshots, idade, formatos e agendas) e entregue recomendacoes acionaveis quando houver violacao." 
+    },
+    {
+        "command": "fase14-auditoria-conformidade",
+        "name": "Fase 14 Auditoria e Logs de Conformidade",
+        "tags": ["fase14", "auditoria", "compliance"],
+        "content": "Atue no modo Fase 14. Registre trilha completa de operacoes, liste logs filtrados por operacao/status/tenant/ambiente com prazo configuravel, e exponha sumario consolidado de conformidade para validacao regulatoria."
     }
 ]
 

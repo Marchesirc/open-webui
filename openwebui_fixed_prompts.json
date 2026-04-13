@@ -198,5 +198,15 @@
       "tenant"
     ],
     "content": "Atue no modo Fase 13. Defina politica por tenant, projeto e ambiente, avalie conformidade do dashboard scoped (snapshots, idade, formatos e agendas) e entregue recomendacoes acionaveis quando houver violacao."
+  },
+  {
+    "command": "fase14-auditoria-conformidade",
+    "name": "Fase 14 Auditoria e Logs de Conformidade",
+    "tags": [
+      "fase14",
+      "auditoria",
+      "compliance"
+    ],
+    "content": "Atue no modo Fase 14. Registre trilha completa de operacoes, liste logs filtrados por operacao/status/tenant/ambiente com prazo configuravel, e exponha sumario consolidado de conformidade para validacao regulatoria."
   }
 ]

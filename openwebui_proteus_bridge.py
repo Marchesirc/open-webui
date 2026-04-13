@@ -616,6 +616,16 @@ class AssistantScopedPolicyRequest(BaseModel):
     note: Optional[str] = None
 
 
+class AssistantAuditLogRequest(BaseModel):
+    operation: str = Field(..., description="policy_upsert|policy_list|policy_evaluate|policy_delete")
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    details: dict[str, Any] = Field(default_factory=dict)
+    status: str = Field(default="success", description="success|failure|warning")
+    error_message: Optional[str] = None
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2902,6 +2912,7 @@ _REPORTS_SCOPED_DIR = _REPORTS_DIR / "scoped"
 _REPORTS_INDEX_FILE = _REPORTS_DIR / "index.json"
 _REPORTS_SCHEDULES_FILE = _REPORTS_DIR / "schedules.json"
 _REPORTS_POLICIES_FILE = _REPORTS_DIR / "policies.json"
+_REPORTS_AUDIT_LOGS_FILE = _REPORTS_DIR / "audit_logs.jsonl"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -3847,6 +3858,165 @@ def _phase13_evaluate_scoped_policy(policy: Optional[dict[str, Any]], dashboard:
         "policy": policy,
         "checks": checks,
         "recommendations": recommendations,
+    }
+
+
+def _load_audit_logs() -> list[dict[str, Any]]:
+    if not _REPORTS_AUDIT_LOGS_FILE.exists():
+        return []
+    try:
+        logs = []
+        with open(_REPORTS_AUDIT_LOGS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                logs.append(json.loads(line))
+        return logs
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao ler {_REPORTS_AUDIT_LOGS_FILE}: {exc}") from exc
+
+
+def _save_audit_log(entry: dict[str, Any]) -> None:
+    _REPORTS_AUDIT_LOGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_REPORTS_AUDIT_LOGS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao salvar audit log em {_REPORTS_AUDIT_LOGS_FILE}: {exc}") from exc
+
+
+def _phase14_record_audit_log(request: AssistantAuditLogRequest, result: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    entry = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "operation": str(request.operation).strip().lower(),
+        "environment": _phase11_normalize_scope_value(request.environment, _PHASE10_DEFAULT_ENVIRONMENT),
+        "tenant_id": _phase11_normalize_scope_value(request.tenant_id, _PHASE11_DEFAULT_TENANT_ID),
+        "project_scope": _phase11_normalize_scope_value(request.project_scope, _PHASE11_DEFAULT_PROJECT_SCOPE),
+        "status": str(request.status).strip().lower(),
+        "details": dict(request.details or {}),
+        "error_message": (str(request.error_message or "").strip() or None),
+        "result_summary": None,
+    }
+    
+    if result:
+        entry["result_summary"] = {
+            "has_result": True,
+            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
+        }
+    
+    _save_audit_log(entry)
+    return {
+        "phase": "phase-14-audit-log-recorded",
+        "timestamp": entry["timestamp"],
+        "operation": entry["operation"],
+        "scope": {
+            "tenant_id": entry["tenant_id"],
+            "project_scope": entry["project_scope"],
+            "environment": entry["environment"],
+        },
+        "status": entry["status"],
+    }
+
+
+def _phase14_list_audit_logs(
+    operation: Optional[str] = None,
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+    status: Optional[str] = None,
+    days: int = 7,
+    limit: int = 200,
+) -> dict[str, Any]:
+    logs = _load_audit_logs()
+    
+    normalized_op = (operation or "").strip().lower() or None
+    normalized_env = (environment or "").strip().lower() or None
+    normalized_tenant = (tenant_id or "").strip().lower() or None
+    normalized_project = (project_scope or "").strip().lower() or None
+    normalized_status = (status or "").strip().lower() or None
+    
+    cutoff_time = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    
+    filtered = []
+    for entry in logs:
+        if entry.get("timestamp", "") < cutoff_time:
+            continue
+        if normalized_op and entry.get("operation") != normalized_op:
+            continue
+        if normalized_env and entry.get("environment") != normalized_env:
+            continue
+        if normalized_tenant and entry.get("tenant_id") != normalized_tenant:
+            continue
+        if normalized_project and entry.get("project_scope") != normalized_project:
+            continue
+        if normalized_status and entry.get("status") != normalized_status:
+            continue
+        filtered.append(entry)
+    
+    filtered.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+    filtered = filtered[:int(limit)]
+    
+    return {
+        "phase": "phase-14-audit-log-list",
+        "filters": {
+            "operation": normalized_op,
+            "environment": normalized_env,
+            "tenant_id": normalized_tenant,
+            "project_scope": normalized_project,
+            "status": normalized_status,
+            "days": days,
+            "limit": limit,
+        },
+        "count": len(filtered),
+        "items": filtered,
+    }
+
+
+def _phase14_audit_summary_by_operation(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+    days: int = 7,
+) -> dict[str, Any]:
+    logs = _load_audit_logs()
+    
+    normalized_env = (environment or "").strip().lower() or None
+    normalized_tenant = (tenant_id or "").strip().lower() or None
+    normalized_project = (project_scope or "").strip().lower() or None
+    
+    cutoff_time = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    
+    summary_by_op: dict[str, dict[str, int]] = {}
+    for entry in logs:
+        if entry.get("timestamp", "") < cutoff_time:
+            continue
+        if normalized_env and entry.get("environment") != normalized_env:
+            continue
+        if normalized_tenant and entry.get("tenant_id") != normalized_tenant:
+            continue
+        if normalized_project and entry.get("project_scope") != normalized_project:
+            continue
+        
+        op = entry.get("operation", "unknown")
+        status = entry.get("status", "unknown")
+        
+        if op not in summary_by_op:
+            summary_by_op[op] = {"success": 0, "failure": 0, "warning": 0, "total": 0}
+        
+        summary_by_op[op][status] = summary_by_op[op].get(status, 0) + 1
+        summary_by_op[op]["total"] = summary_by_op[op].get("total", 0) + 1
+    
+    return {
+        "phase": "phase-14-audit-summary",
+        "scope": {
+            "environment": normalized_env,
+            "tenant_id": normalized_tenant,
+            "project_scope": normalized_project,
+        },
+        "days": days,
+        "summary_by_operation": summary_by_op,
+        "total_logs": len(logs),
     }
 
 
@@ -5446,6 +5616,50 @@ def assistant_executive_dashboard_scoped_policy(
     }
 
 
+@app.post("/assistant/audit-log")
+def assistant_audit_log(request: AssistantAuditLogRequest) -> dict[str, Any]:
+    result = _phase14_record_audit_log(request)
+    return {"ok": True, "result": result}
+
+
+@app.get("/assistant/audit-logs")
+def assistant_audit_logs(
+    operation: Optional[str] = Query(default=None),
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    days: int = Query(default=7, ge=1, le=90),
+    limit: int = Query(default=200, ge=10, le=2000),
+) -> dict[str, Any]:
+    result = _phase14_list_audit_logs(
+        operation=operation,
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        status=status,
+        days=days,
+        limit=limit,
+    )
+    return {"ok": True, "result": result}
+
+
+@app.get("/assistant/audit-summary")
+def assistant_audit_summary(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+    days: int = Query(default=7, ge=1, le=90),
+) -> dict[str, Any]:
+    result = _phase14_audit_summary_by_operation(
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+        days=days,
+    )
+    return {"ok": True, "result": result}
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -5586,6 +5800,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase11_multi_tenant_reports": True,
             "assistant_phase12_scoped_dashboard": True,
             "assistant_phase13_scoped_policy": True,
+            "assistant_phase14_audit_logs": True,
         },
         "projects_root": str(project_root()),
     }
