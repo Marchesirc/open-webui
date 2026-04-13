@@ -128,5 +128,15 @@
       "compliance"
     ],
     "content": "Atue no modo Fase 6. Separe os itens operacionais em filas independentes de risco, SLA e compliance, use o dashboard consolidado para priorizacao e escale somente a fila correta com justificativa objetiva."
+  },
+  {
+    "command": "fase7-painel-executivo",
+    "name": "Fase 7 Painel Executivo",
+    "tags": [
+      "fase7",
+      "executivo",
+      "tendencias"
+    ],
+    "content": "Atue no modo Fase 7. Gere um painel executivo com metricas historicas por fila, tendencias por periodo, identificacao de eventos duplicados e recomendacoes curtas de priorizacao operacional."
   }
 ]

@@ -89,6 +89,8 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_operations_dashboard",
     "assistant_operations_policies",
     "assistant_operations_escalate",
+    "assistant_executive_dashboard",
+    "assistant_checkpoints_deduplicate",
     "health",
     "workspace_list",
     "workspace_search",
@@ -220,6 +222,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 6", "filas operacionais"],
         "content": "Execute a Fase 6: separe filas de risco, SLA e compliance, consulte dashboard operacional consolidado, aplique politicas independentes por fila e escale apenas o dominio correto."
+    },
+    {
+        "title": ["Fase 7", "painel executivo"],
+        "content": "Execute a Fase 7: consolide metricas historicas por fila, gere tendencias temporais, identifique eventos duplicados no historico e exponha um painel executivo objetivo para priorizacao."
     }
 ]
 
@@ -301,6 +307,12 @@ FIXED_PROMPTS = [
         "name": "Fase 6 Filas Operacionais",
         "tags": ["fase6", "operacoes", "compliance"],
         "content": "Atue no modo Fase 6. Separe os itens operacionais em filas independentes de risco, SLA e compliance, use o dashboard consolidado para priorizacao e escale somente a fila correta com justificativa objetiva."
+    },
+    {
+        "command": "fase7-painel-executivo",
+        "name": "Fase 7 Painel Executivo",
+        "tags": ["fase7", "executivo", "tendencias"],
+        "content": "Atue no modo Fase 7. Gere um painel executivo com metricas historicas por fila, tendencias por periodo, identificacao de eventos duplicados e recomendacoes curtas de priorizacao operacional."
     }
 ]
 

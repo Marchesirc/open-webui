@@ -527,6 +527,11 @@ class AssistantOperationsEscalationRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class AssistantCheckpointDedupRequest(BaseModel):
+    apply_changes: bool = False
+    limit: int = Field(default=5000, ge=100, le=50000)
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2851,6 +2856,8 @@ _PHASE6_QUEUE_POLICIES: dict[str, dict[str, Any]] = {
     },
 }
 
+_PHASE7_DEFAULT_DAYS = 7
+
 
 def _tokenize_text(text: str) -> set[str]:
     normalized = re.sub(r"[^a-z0-9_\-\s]", " ", (text or "").lower())
@@ -2948,14 +2955,38 @@ def _record_checkpoint_decision(checkpoint_id: str, decision: str, note: str) ->
 
 
 def _to_checkpoint_latest_records() -> list[dict[str, Any]]:
-    latest: dict[str, dict[str, Any]] = {}
+    history: dict[str, list[dict[str, Any]]] = {}
     for item in _load_checkpoints():
         checkpoint_id = str(item.get("checkpoint_id") or "").strip()
         if not checkpoint_id:
             continue
-        latest[checkpoint_id] = item
+        history.setdefault(checkpoint_id, []).append(item)
 
-    records = list(latest.values())
+    records: list[dict[str, Any]] = []
+    for checkpoint_id, items in history.items():
+        merged = dict(items[-1])
+        for previous in reversed(items[:-1]):
+            for key in [
+                "objective",
+                "task_type",
+                "created_at",
+                "quality",
+                "risk",
+                "sla",
+                "planner_steps",
+                "queue",
+                "queue_reason",
+                "queue_priority",
+                "compliance_state",
+            ]:
+                current_value = merged.get(key)
+                if current_value in (None, "", [], {}):
+                    previous_value = previous.get(key)
+                    if previous_value not in (None, "", [], {}):
+                        merged[key] = previous_value
+        merged["checkpoint_id"] = checkpoint_id
+        records.append(merged)
+
     records.sort(key=lambda entry: str(entry.get("updated_at") or entry.get("created_at") or ""), reverse=True)
     return records
 
@@ -3256,6 +3287,156 @@ def _phase6_escalate_operational_queues(
         },
         "count": len(escalated_items),
         "items": escalated_items,
+    }
+
+
+def _phase7_checkpoint_event_signature(entry: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(entry.get("checkpoint_id") or ""),
+            str(entry.get("status") or ""),
+            str(entry.get("decision") or ""),
+            str(entry.get("queue") or ""),
+            str(entry.get("queue_priority") or ""),
+            str(entry.get("note") or ""),
+        ]
+    )
+
+
+def _phase7_collect_deduplicated_events(limit: int = 5000) -> dict[str, Any]:
+    raw_items = _load_checkpoints()[-limit:]
+    annotated: list[tuple[str, Optional[datetime], dict[str, Any], str]] = []
+    for item in raw_items:
+        signature = _phase7_checkpoint_event_signature(item)
+        timestamp = _parse_checkpoint_timestamp(item.get("updated_at") or item.get("created_at"))
+        timestamp_key = (timestamp.isoformat() if timestamp else "")
+        annotated.append((signature, timestamp, item, timestamp_key))
+
+    annotated.sort(key=lambda row: row[3], reverse=True)
+
+    seen: set[str] = set()
+    deduplicated: list[dict[str, Any]] = []
+    duplicates: list[dict[str, Any]] = []
+    for signature, _timestamp, item, _key in annotated:
+        if signature in seen:
+            duplicates.append(item)
+            continue
+        seen.add(signature)
+        deduplicated.append(item)
+
+    deduplicated.reverse()
+    duplicates.reverse()
+    return {
+        "kept": deduplicated,
+        "duplicates": duplicates,
+        "input_count": len(raw_items),
+        "kept_count": len(deduplicated),
+        "duplicate_count": len(duplicates),
+    }
+
+
+def _phase7_classify_event_queue(entry: dict[str, Any]) -> str:
+    explicit_queue = str(entry.get("queue") or "").strip().lower()
+    if explicit_queue in {"risk", "sla", "compliance"}:
+        return explicit_queue
+
+    status = str(entry.get("status") or "").strip().lower()
+    risk = entry.get("risk") or {}
+    quality = entry.get("quality") or {}
+    sla = entry.get("sla") or {}
+    risk_level = str(risk.get("risk_level") or "").strip().lower()
+    sla_state = str(sla.get("state") or "").strip().lower()
+    missing_sections = list(quality.get("missing_sections") or [])
+    quality_pass = bool(quality.get("pass", True))
+
+    if status in {"pending", "escalated"} and risk_level in {"high", "critical"}:
+        return "risk"
+    if status == "pending" and sla_state in {"warning", "critical"}:
+        return "sla"
+    if status in {"pending", "escalated", "rejected"} and (missing_sections or not quality_pass):
+        return "compliance"
+    return ""
+
+
+def _phase7_apply_checkpoint_dedup(limit: int = 5000, apply_changes: bool = False) -> dict[str, Any]:
+    result = _phase7_collect_deduplicated_events(limit=limit)
+    if apply_changes:
+        lines = [json.dumps(item, ensure_ascii=False) for item in result["kept"]]
+        output = "\n".join(lines)
+        if output:
+            output += "\n"
+        _CHECKPOINT_FILE.write_text(output, encoding="utf-8")
+    return {
+        "phase": "phase-7-deduplication",
+        "applied": apply_changes,
+        "input_count": result["input_count"],
+        "kept_count": result["kept_count"],
+        "duplicate_count": result["duplicate_count"],
+        "sample_duplicates": result["duplicates"][:10],
+    }
+
+
+def _phase7_build_executive_dashboard(
+    days: int = _PHASE7_DEFAULT_DAYS,
+    warning_after_hours: int = _PHASE5_SLA_WARNING_HOURS,
+    critical_after_hours: int = _PHASE5_SLA_CRITICAL_HOURS,
+    limit: int = 200,
+) -> dict[str, Any]:
+    if days < 1:
+        days = 1
+    dashboard = _phase6_build_operational_queues(warning_after_hours, critical_after_hours, limit=limit)
+    dedup = _phase7_collect_deduplicated_events(limit=max(limit * 5, 500))
+    latest_records = [_phase5_enrich_checkpoint_sla(item, warning_after_hours, critical_after_hours) for item in _to_checkpoint_latest_records()[:limit]]
+
+    cutoff = datetime.now() - timedelta(days=days)
+    timeline: dict[str, dict[str, int]] = {}
+    queue_history: dict[str, list[dict[str, Any]]] = {"risk": [], "sla": [], "compliance": []}
+
+    dedup_events = list(dedup["kept"])
+    for event in dedup_events:
+        ts = _parse_checkpoint_timestamp(event.get("updated_at") or event.get("created_at"))
+        if ts is None or ts < cutoff:
+            continue
+        bucket = ts.strftime("%Y-%m-%d")
+        day_row = timeline.setdefault(bucket, {"risk": 0, "sla": 0, "compliance": 0, "events": 0})
+        queue_name = _phase7_classify_event_queue(event)
+        if queue_name in {"risk", "sla", "compliance"}:
+            day_row[queue_name] += 1
+        day_row["events"] += 1
+
+    sorted_days = sorted(timeline.keys())
+    for queue_name in ["risk", "sla", "compliance"]:
+        for day in sorted_days:
+            row = timeline.get(day, {})
+            queue_history[queue_name].append({"date": day, "count": int(row.get(queue_name, 0))})
+
+    open_by_queue = dashboard.get("counts", {})
+    summary_metrics = {
+        "open_risk": int(open_by_queue.get("risk", 0)),
+        "open_sla": int(open_by_queue.get("sla", 0)),
+        "open_compliance": int(open_by_queue.get("compliance", 0)),
+        "tracked_records": len(latest_records),
+        "deduplicated_events": dedup["kept_count"],
+        "duplicate_events_removed": dedup["duplicate_count"],
+    }
+
+    alerts: list[str] = list(dashboard.get("alerts", []))
+    if dedup["duplicate_count"]:
+        alerts.append(f"{dedup['duplicate_count']} evento(s) duplicado(s) identificado(s) no historico")
+
+    return {
+        "phase": "phase-7-executive-dashboard",
+        "window_days": days,
+        "summary": summary_metrics,
+        "alerts": alerts,
+        "timeline": [{"date": day, **timeline[day]} for day in sorted_days],
+        "queue_history": queue_history,
+        "operations": dashboard,
+        "deduplication": {
+            "input_count": dedup["input_count"],
+            "kept_count": dedup["kept_count"],
+            "duplicate_count": dedup["duplicate_count"],
+        },
     }
 
 
@@ -4003,6 +4184,23 @@ def assistant_operations_escalate(request: AssistantOperationsEscalationRequest)
     return {"ok": True, "result": result}
 
 
+@app.get("/assistant/executive/dashboard")
+def assistant_executive_dashboard(
+    days: int = Query(default=_PHASE7_DEFAULT_DAYS, ge=1, le=90),
+    warning_after_hours: int = Query(default=_PHASE5_SLA_WARNING_HOURS, ge=1, le=720),
+    critical_after_hours: int = Query(default=_PHASE5_SLA_CRITICAL_HOURS, ge=1, le=1440),
+    limit: int = Query(default=200, ge=10, le=2000),
+) -> dict[str, Any]:
+    if critical_after_hours < warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+    return {"ok": True, "result": _phase7_build_executive_dashboard(days, warning_after_hours, critical_after_hours, limit)}
+
+
+@app.post("/assistant/checkpoints/deduplicate")
+def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
+
+
 @app.get("/assistant/capabilities")
 def assistant_capabilities() -> dict[str, Any]:
     return {
@@ -4033,6 +4231,8 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase6_operations_dashboard": True,
             "assistant_phase6_operations_policies": True,
             "assistant_phase6_operations_escalation": True,
+            "assistant_phase7_executive_dashboard": True,
+            "assistant_phase7_deduplication": True,
         },
         "projects_root": str(project_root()),
     }

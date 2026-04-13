@@ -38,6 +38,8 @@
           "assistant_operations_dashboard",
           "assistant_operations_policies",
           "assistant_operations_escalate",
+          "assistant_executive_dashboard",
+          "assistant_checkpoints_deduplicate",
           "health",
           "workspace_list",
           "workspace_search",
