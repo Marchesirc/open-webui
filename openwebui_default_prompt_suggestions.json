@@ -131,5 +131,12 @@
       "dashboard por escopo"
     ],
     "content": "Execute a Fase 12: gere dashboard executivo filtrado por tenant, projeto e ambiente, acompanhe snapshots recentes, agendas vencidas e cobertura de escopo para decisao operacional."
+  },
+  {
+    "title": [
+      "Fase 13",
+      "politica por escopo"
+    ],
+    "content": "Execute a Fase 13: configure politica de conformidade por tenant, projeto e ambiente, valide snapshots e agendas contra os limites e reporte pass ou fail com recomendacoes objetivas."
   }
 ]

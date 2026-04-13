@@ -41,6 +41,9 @@
             "assistant_operations_escalate",
             "assistant_executive_dashboard",
             "assistant_executive_dashboard_scoped",
+            "assistant_executive_policy",
+            "assistant_executive_policy_list",
+            "assistant_executive_dashboard_scoped_policy",
             "assistant_checkpoints_deduplicate",
             "assistant_executive_report",
             "assistant_executive_report_snapshot",
@@ -237,6 +240,13 @@
         "dashboard por escopo"
       ],
       "content": "Execute a Fase 12: gere dashboard executivo filtrado por tenant, projeto e ambiente, acompanhe snapshots recentes, agendas vencidas e cobertura de escopo para decisao operacional."
+    },
+    {
+      "title": [
+        "Fase 13",
+        "politica por escopo"
+      ],
+      "content": "Execute a Fase 13: configure politica de conformidade por tenant, projeto e ambiente, valide snapshots e agendas contra os limites e reporte pass ou fail com recomendacoes objetivas."
     }
   ],
   "default_models": "qwen2.5:14b",
@@ -374,6 +384,13 @@
           "dashboard por escopo"
         ],
         "content": "Execute a Fase 12: gere dashboard executivo filtrado por tenant, projeto e ambiente, acompanhe snapshots recentes, agendas vencidas e cobertura de escopo para decisao operacional."
+      },
+      {
+        "title": [
+          "Fase 13",
+          "politica por escopo"
+        ],
+        "content": "Execute a Fase 13: configure politica de conformidade por tenant, projeto e ambiente, valide snapshots e agendas contra os limites e reporte pass ou fail com recomendacoes objetivas."
       }
     ],
     "default_locale": "pt-BR",

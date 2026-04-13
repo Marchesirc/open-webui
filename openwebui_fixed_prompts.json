@@ -188,5 +188,15 @@
       "tenant"
     ],
     "content": "Atue no modo Fase 12. Monte um dashboard executivo filtrado por tenant, projeto e ambiente, destaque snapshots recentes, agendas vencidas e lacunas de cobertura para orientar a proxima acao."
+  },
+  {
+    "command": "fase13-politica-escopo",
+    "name": "Fase 13 Politica de Conformidade por Escopo",
+    "tags": [
+      "fase13",
+      "politica",
+      "tenant"
+    ],
+    "content": "Atue no modo Fase 13. Defina politica por tenant, projeto e ambiente, avalie conformidade do dashboard scoped (snapshots, idade, formatos e agendas) e entregue recomendacoes acionaveis quando houver violacao."
   }
 ]

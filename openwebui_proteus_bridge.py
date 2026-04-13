@@ -604,6 +604,18 @@ class AssistantReportScheduleRunRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
 
 
+class AssistantScopedPolicyRequest(BaseModel):
+    environment: str = Field(default="default", min_length=1, max_length=80)
+    tenant_id: str = Field(default="shared", min_length=1, max_length=80)
+    project_scope: str = Field(default="general", min_length=1, max_length=120)
+    enabled: bool = True
+    min_recent_snapshots: int = Field(default=1, ge=0, le=500)
+    max_snapshot_age_hours: int = Field(default=72, ge=1, le=8760)
+    max_due_schedules: int = Field(default=0, ge=0, le=500)
+    required_formats: list[str] = Field(default_factory=lambda: ["json"])
+    note: Optional[str] = None
+
+
 def project_root() -> Path:
     return Path(CONFIG["projects_root"]).expanduser()
 
@@ -2889,6 +2901,7 @@ _REPORTS_DIR = BASE_DIR / "assistant_reports"
 _REPORTS_SCOPED_DIR = _REPORTS_DIR / "scoped"
 _REPORTS_INDEX_FILE = _REPORTS_DIR / "index.json"
 _REPORTS_SCHEDULES_FILE = _REPORTS_DIR / "schedules.json"
+_REPORTS_POLICIES_FILE = _REPORTS_DIR / "policies.json"
 
 _PHASE4_RISK_POLICY: dict[str, str] = {
     "diagnose": "medium",
@@ -3526,6 +3539,8 @@ def _ensure_reports_storage() -> None:
         _REPORTS_INDEX_FILE.write_text("[]\n", encoding="utf-8")
     if not _REPORTS_SCHEDULES_FILE.exists():
         _REPORTS_SCHEDULES_FILE.write_text("[]\n", encoding="utf-8")
+    if not _REPORTS_POLICIES_FILE.exists():
+        _REPORTS_POLICIES_FILE.write_text("[]\n", encoding="utf-8")
 
 
 def _load_reports_index() -> list[dict[str, Any]]:
@@ -3558,6 +3573,22 @@ def _load_report_schedules() -> list[dict[str, Any]]:
 def _save_report_schedules(entries: list[dict[str, Any]]) -> None:
     _ensure_reports_storage()
     _REPORTS_SCHEDULES_FILE.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _load_scoped_policies() -> list[dict[str, Any]]:
+    _ensure_reports_storage()
+    try:
+        payload = json.loads(_REPORTS_POLICIES_FILE.read_text(encoding="utf-8"))
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def _save_scoped_policies(entries: list[dict[str, Any]]) -> None:
+    _ensure_reports_storage()
+    _REPORTS_POLICIES_FILE.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def _phase11_normalize_scope_value(value: Optional[str], default: str) -> str:
@@ -3629,6 +3660,194 @@ def _phase11_schedule_identity(entry: dict[str, Any]) -> tuple[str, str, str, st
         scope["project_scope"],
         scope["environment"],
     )
+
+
+def _phase13_policy_identity(entry: dict[str, Any]) -> tuple[str, str, str]:
+    scope = _phase11_entry_scope(entry)
+    return (
+        scope["tenant_id"],
+        scope["project_scope"],
+        scope["environment"],
+    )
+
+
+def _phase13_normalize_policy(payload: dict[str, Any]) -> dict[str, Any]:
+    required_formats = []
+    for item in list(payload.get("required_formats") or []):
+        fmt = str(item).strip().lower()
+        if not fmt:
+            continue
+        _phase8_report_extension(fmt)
+        if fmt not in required_formats:
+            required_formats.append(fmt)
+
+    return {
+        **_phase11_scope_context(
+            environment=str(payload.get("environment") or _PHASE10_DEFAULT_ENVIRONMENT),
+            tenant_id=str(payload.get("tenant_id") or _PHASE11_DEFAULT_TENANT_ID),
+            project_scope=str(payload.get("project_scope") or _PHASE11_DEFAULT_PROJECT_SCOPE),
+        ),
+        "enabled": bool(payload.get("enabled", True)),
+        "min_recent_snapshots": int(payload.get("min_recent_snapshots") or 0),
+        "max_snapshot_age_hours": int(payload.get("max_snapshot_age_hours") or 72),
+        "max_due_schedules": int(payload.get("max_due_schedules") or 0),
+        "required_formats": required_formats,
+        "note": (str(payload.get("note") or "").strip() or None),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _phase13_upsert_policy(request: AssistantScopedPolicyRequest) -> dict[str, Any]:
+    policy = _phase13_normalize_policy(request.model_dump())
+    policies = _load_scoped_policies()
+    existing = next((item for item in policies if _phase13_policy_identity(item) == _phase13_policy_identity(policy)), None)
+    if existing:
+        policy["created_at"] = existing.get("created_at") or datetime.now().isoformat(timespec="seconds")
+    else:
+        policy["created_at"] = datetime.now().isoformat(timespec="seconds")
+
+    policies = [item for item in policies if _phase13_policy_identity(item) != _phase13_policy_identity(policy)]
+    policies.append(policy)
+    policies.sort(key=lambda item: "|".join(_phase13_policy_identity(item)))
+    _save_scoped_policies(policies)
+    return {"phase": "phase-13-scoped-policy", "policy": policy}
+
+
+def _phase13_list_policies(
+    environment: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    project_scope: Optional[str] = None,
+) -> dict[str, Any]:
+    policies = _load_scoped_policies()
+    normalized_environment = (environment or "").strip().lower()
+    normalized_tenant = (tenant_id or "").strip().lower()
+    normalized_project = (project_scope or "").strip().lower()
+    policies = [
+        item
+        for item in policies
+        if _phase11_matches_scope(
+            item,
+            environment=normalized_environment or None,
+            tenant_id=normalized_tenant or None,
+            project_scope=normalized_project or None,
+        )
+    ]
+    policies.sort(key=lambda item: "|".join(_phase13_policy_identity(item)))
+    return {
+        "phase": "phase-13-scoped-policy-list",
+        "environment": normalized_environment or None,
+        "tenant_id": normalized_tenant or None,
+        "project_scope": normalized_project or None,
+        "count": len(policies),
+        "items": policies,
+    }
+
+
+def _phase13_find_policy(scope: dict[str, str]) -> Optional[dict[str, Any]]:
+    for item in _load_scoped_policies():
+        if _phase13_policy_identity(item) == (scope["tenant_id"], scope["project_scope"], scope["environment"]):
+            return item
+    return None
+
+
+def _phase13_evaluate_scoped_policy(policy: Optional[dict[str, Any]], dashboard: dict[str, Any]) -> dict[str, Any]:
+    if not policy:
+        return {
+            "phase": "phase-13-scoped-policy-evaluation",
+            "policy_found": False,
+            "policy_enabled": False,
+            "pass": True,
+            "checks": [],
+            "recommendations": ["Nenhuma politica cadastrada para o escopo; operacao em modo observabilidade."],
+        }
+
+    if not bool(policy.get("enabled", True)):
+        return {
+            "phase": "phase-13-scoped-policy-evaluation",
+            "policy_found": True,
+            "policy_enabled": False,
+            "pass": True,
+            "checks": [],
+            "policy": policy,
+            "recommendations": ["Politica encontrada, mas desabilitada para este escopo."],
+        }
+
+    summary = dashboard.get("summary") or {}
+    latest_snapshot_at = _parse_checkpoint_timestamp(dashboard.get("latest_snapshot_at"))
+    latest_snapshot_age_hours = None
+    if latest_snapshot_at is not None:
+        latest_snapshot_age_hours = round(max((datetime.now() - latest_snapshot_at).total_seconds(), 0.0) / 3600.0, 2)
+
+    recent_snapshots = int(summary.get("recent_snapshots", 0))
+    due_schedules = int(summary.get("due_schedules", 0))
+    required_formats = list(policy.get("required_formats") or [])
+    latest_formats = list(((dashboard.get("operations") or {}).get("recent_snapshots") or [{}])[0].get("formats") or [])
+
+    checks = []
+    checks.append(
+        {
+            "check": "min_recent_snapshots",
+            "expected": int(policy.get("min_recent_snapshots", 0)),
+            "actual": recent_snapshots,
+            "pass": recent_snapshots >= int(policy.get("min_recent_snapshots", 0)),
+        }
+    )
+    checks.append(
+        {
+            "check": "max_due_schedules",
+            "expected": int(policy.get("max_due_schedules", 0)),
+            "actual": due_schedules,
+            "pass": due_schedules <= int(policy.get("max_due_schedules", 0)),
+        }
+    )
+
+    age_limit = int(policy.get("max_snapshot_age_hours", 72))
+    checks.append(
+        {
+            "check": "max_snapshot_age_hours",
+            "expected": age_limit,
+            "actual": latest_snapshot_age_hours,
+            "pass": latest_snapshot_age_hours is not None and latest_snapshot_age_hours <= age_limit,
+        }
+    )
+
+    if required_formats:
+        checks.append(
+            {
+                "check": "required_formats",
+                "expected": required_formats,
+                "actual": latest_formats,
+                "pass": set(required_formats).issubset(set(str(item).strip().lower() for item in latest_formats)),
+            }
+        )
+
+    passed = all(bool(item.get("pass")) for item in checks)
+    recommendations: list[str] = []
+    if not passed:
+        for item in checks:
+            if item.get("pass"):
+                continue
+            if item.get("check") == "min_recent_snapshots":
+                recommendations.append("Aumente a frequencia de snapshots ou execute um run forcado para recuperar cobertura.")
+            elif item.get("check") == "max_due_schedules":
+                recommendations.append("Execute agendas vencidas e ajuste a janela de execucao para reduzir backlog.")
+            elif item.get("check") == "max_snapshot_age_hours":
+                recommendations.append("Gerar snapshot imediato para reduzir idade do ultimo reporte no escopo.")
+            elif item.get("check") == "required_formats":
+                recommendations.append("Inclua os formatos obrigatorios na agenda para manter contrato de entrega.")
+
+    if not recommendations:
+        recommendations.append("Politica em conformidade para o escopo informado.")
+
+    return {
+        "phase": "phase-13-scoped-policy-evaluation",
+        "policy_found": True,
+        "policy_enabled": True,
+        "pass": passed,
+        "policy": policy,
+        "checks": checks,
+        "recommendations": recommendations,
+    }
 
 
 def _phase11_resolve_snapshot_dir(entry: dict[str, Any]) -> Optional[Path]:
@@ -5165,6 +5384,68 @@ def assistant_executive_dashboard_scoped(
     }
 
 
+@app.post("/assistant/executive/policy")
+def assistant_executive_policy(request: AssistantScopedPolicyRequest) -> dict[str, Any]:
+    return {"ok": True, "result": _phase13_upsert_policy(request)}
+
+
+@app.get("/assistant/executive/policy")
+def assistant_executive_policy_list(
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "result": _phase13_list_policies(
+            environment=environment,
+            tenant_id=tenant_id,
+            project_scope=project_scope,
+        ),
+    }
+
+
+@app.get("/assistant/executive/dashboard/scoped/policy")
+def assistant_executive_dashboard_scoped_policy(
+    days: int = Query(default=_PHASE7_DEFAULT_DAYS, ge=1, le=90),
+    warning_after_hours: int = Query(default=_PHASE5_SLA_WARNING_HOURS, ge=1, le=720),
+    critical_after_hours: int = Query(default=_PHASE5_SLA_CRITICAL_HOURS, ge=1, le=1440),
+    limit: int = Query(default=200, ge=10, le=2000),
+    environment: Optional[str] = Query(default=None),
+    tenant_id: Optional[str] = Query(default=None),
+    project_scope: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    if critical_after_hours < warning_after_hours:
+        raise HTTPException(status_code=400, detail="critical_after_hours deve ser maior ou igual a warning_after_hours")
+
+    dashboard = _phase12_build_scoped_dashboard(
+        days=days,
+        warning_after_hours=warning_after_hours,
+        critical_after_hours=critical_after_hours,
+        limit=limit,
+        environment=environment,
+        tenant_id=tenant_id,
+        project_scope=project_scope,
+    )
+    scope = _phase11_scope_context(
+        environment=environment or _PHASE10_DEFAULT_ENVIRONMENT,
+        tenant_id=tenant_id or _PHASE11_DEFAULT_TENANT_ID,
+        project_scope=project_scope or _PHASE11_DEFAULT_PROJECT_SCOPE,
+    )
+    policy = _phase13_find_policy(scope)
+    evaluation = _phase13_evaluate_scoped_policy(policy, dashboard)
+
+    return {
+        "ok": True,
+        "result": {
+            "phase": "phase-13-scoped-policy-dashboard",
+            "scope": scope,
+            "dashboard": dashboard,
+            "evaluation": evaluation,
+        },
+    }
+
+
 @app.post("/assistant/checkpoints/deduplicate")
 def assistant_checkpoints_deduplicate(request: AssistantCheckpointDedupRequest) -> dict[str, Any]:
     return {"ok": True, "result": _phase7_apply_checkpoint_dedup(limit=request.limit, apply_changes=request.apply_changes)}
@@ -5304,6 +5585,7 @@ def assistant_capabilities() -> dict[str, Any]:
             "assistant_phase10_report_runner": True,
             "assistant_phase11_multi_tenant_reports": True,
             "assistant_phase12_scoped_dashboard": True,
+            "assistant_phase13_scoped_policy": True,
         },
         "projects_root": str(project_root()),
     }

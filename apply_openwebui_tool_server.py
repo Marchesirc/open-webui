@@ -91,6 +91,9 @@ PROTEUS_BRIDGE_ALLOWED_FUNCTIONS = [
     "assistant_operations_escalate",
     "assistant_executive_dashboard",
     "assistant_executive_dashboard_scoped",
+    "assistant_executive_policy",
+    "assistant_executive_policy_list",
+    "assistant_executive_dashboard_scoped_policy",
     "assistant_checkpoints_deduplicate",
     "assistant_executive_report",
     "assistant_executive_report_snapshot",
@@ -254,6 +257,10 @@ PROMPT_SUGGESTIONS = [
     {
         "title": ["Fase 12", "dashboard por escopo"],
         "content": "Execute a Fase 12: gere dashboard executivo filtrado por tenant, projeto e ambiente, acompanhe snapshots recentes, agendas vencidas e cobertura de escopo para decisao operacional." 
+    },
+    {
+        "title": ["Fase 13", "politica por escopo"],
+        "content": "Execute a Fase 13: configure politica de conformidade por tenant, projeto e ambiente, valide snapshots e agendas contra os limites e reporte pass ou fail com recomendacoes objetivas."
     }
 ]
 
@@ -371,6 +378,12 @@ FIXED_PROMPTS = [
         "name": "Fase 12 Dashboard Executivo por Escopo",
         "tags": ["fase12", "dashboard", "tenant"],
         "content": "Atue no modo Fase 12. Monte um dashboard executivo filtrado por tenant, projeto e ambiente, destaque snapshots recentes, agendas vencidas e lacunas de cobertura para orientar a proxima acao." 
+    },
+    {
+        "command": "fase13-politica-escopo",
+        "name": "Fase 13 Politica de Conformidade por Escopo",
+        "tags": ["fase13", "politica", "tenant"],
+        "content": "Atue no modo Fase 13. Defina politica por tenant, projeto e ambiente, avalie conformidade do dashboard scoped (snapshots, idade, formatos e agendas) e entregue recomendacoes acionaveis quando houver violacao." 
     }
 ]
 
